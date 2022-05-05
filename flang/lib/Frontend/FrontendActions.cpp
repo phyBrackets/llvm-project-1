@@ -73,6 +73,19 @@ bool PrescanAndSemaDebugAction::BeginSourceFileAction() {
 }
 
 bool CodeGenAction::BeginSourceFileAction() {
+  llvmCtx = std::make_unique<llvm::LLVMContext>();
+
+  // If the input is an LLVM file, just parse it and return.
+  if (this->currentInput().kind().GetLanguage() == Language::LLVM_IR) {
+    llvm::SMDiagnostic err;
+    llvmModule = llvm::parseIRFile(currentInput().file(), err, *llvmCtx);
+
+    return (nullptr != llvmModule);
+  }
+
+  // Otherwise, generate an MLIR module from the input Fortran source
+  assert(currentInput().kind().GetLanguage() == Language::Fortran &&
+         "Invalid input type - expecting a Fortran file");
   bool res = RunPrescan() && RunParse() && RunSemanticChecks();
   if (!res)
     return res;
@@ -448,7 +461,6 @@ void CodeGenAction::GenerateLLVMIR() {
 
   // Translate to LLVM IR
   llvm::Optional<llvm::StringRef> moduleName = mlirModule->getName();
-  llvmCtx = std::make_unique<llvm::LLVMContext>();
   llvmModule = mlir::translateModuleToLLVMIR(
       *mlirModule, *llvmCtx, moduleName ? *moduleName : "FIRModule");
 
@@ -521,9 +533,9 @@ static void GenerateMachineCodeOrAssemblyImpl(clang::DiagnosticsEngine &diags,
                                               BackendActionTy act,
                                               llvm::Module &llvmModule,
                                               llvm::raw_pwrite_stream &os) {
-  assert((act == BackendActionTy::Backend_EmitObj) ||
-         (act == BackendActionTy::Backend_EmitAssembly) &&
-             "Unsupported action");
+  assert(((act == BackendActionTy::Backend_EmitObj) ||
+          (act == BackendActionTy::Backend_EmitAssembly)) &&
+         "Unsupported action");
 
   // Set-up the pass manager, i.e create an LLVM code-gen pass pipeline.
   // Currently only the legacy pass manager is supported.
