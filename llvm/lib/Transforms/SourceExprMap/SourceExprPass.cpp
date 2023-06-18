@@ -27,6 +27,7 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/Utils/Local.h"
+#include <llvm/ADT/DenseMapInfo.h>
 #include <stack>
 
 using namespace llvm;
@@ -34,6 +35,8 @@ using namespace llvm;
 #define DEBUG_TYPE "source_pass"
 
 namespace {
+
+// llvm::DenseMap<StringRef, DILocalVariable *> llvmValtoLocalVarMap;
 
 // This function translates LLVM opcodes to source-level expressions using DWARF
 // operation encodings. It returns the source-level expression corresponding to
@@ -81,7 +84,6 @@ llvm::DenseMap<llvm::Value *, std::string> sourceExpressionsMap;
 // operator, it constructs the expression using the names of its operands and
 // the operator symbol. If the operand is not an instruction or doesn't match
 // any specific case, it returns its name or operand representation.
-
 std::string getSourceExpressionForOperand(
     llvm::Value *operand,
     llvm::DenseMap<llvm::Value *, std::string> sourceExpressionsMap,
@@ -108,6 +110,29 @@ std::string getSourceExpressionForOperand(
       return "(" + name1 + " " +
              getExpressionFromOpcode(binaryOp->getOpcodeName()) + " " + name2 +
              ")";
+    } else if (llvm::LoadInst *loadInst =
+                   llvm::dyn_cast<llvm::LoadInst>(operandInst)) {
+      llvm::Value *operandVal = loadInst->getOperand(0);
+      std::string operandName =
+          sourceExpressionsMap.count(operandVal)
+              ? sourceExpressionsMap[operandVal]
+              : getSourceExpressionForOperand(operandVal, sourceExpressionsMap,
+                                              symbol);
+      return "(" + operandName + ")";
+    } else if (llvm::StoreInst *storeInst =
+                   llvm::dyn_cast<llvm::StoreInst>(operandInst)) {
+      // Store instruction - return the source expression for its value operand
+      llvm::Value *operandVal = storeInst->getValueOperand();
+
+      // Check if a source expression exists for the value operand
+      std::string operandName =
+          sourceExpressionsMap.count(operandVal)
+              ? sourceExpressionsMap[operandVal]
+              : getSourceExpressionForOperand(operandVal, sourceExpressionsMap,
+                                              symbol);
+
+      // Construct the source expression using the operand name and the symbol
+      return "(" + operandName + ")";
     }
   }
 
@@ -197,6 +222,182 @@ std::string getSourceExpressionForVariable(llvm::DILocalVariable *localVar,
   return sourceExpression;
 }
 
+std::vector<std::string> getSourceExpressionsForValue(
+    llvm::Value *llvmVal,
+    llvm::DenseMap<llvm::Value *, std::string> &sourceExpressionsMap,
+    StringRef symbol, llvm::DILocalVariable *localVar = nullptr) {
+  std::vector<std::string> sourceExpressions;
+  llvm::DenseMap<llvm::LoadInst *, llvm::StoreInst *> loadStoreMap;
+
+  for (llvm::User *user : llvmVal->users()) {
+    if (llvm::LoadInst *loadInst = llvm::dyn_cast<llvm::LoadInst>(user)) {
+      std::string sourceExpression;
+      if (loadStoreMap.count(loadInst) > 0) {
+        llvm::Value *loadedValue = loadInst->getPointerOperand();
+        sourceExpression = getSourceExpressionForVariable(
+            localVar, loadedValue, localVar->getName().str());
+        sourceExpressions.push_back(sourceExpression);
+        sourceExpressionsMap[loadInst] = sourceExpression;
+        // Load instruction already processed inside the store, skip it
+        continue;
+      }
+
+      std::vector<std::string> expressions =
+          getSourceExpressionsForValue(loadInst, sourceExpressionsMap, symbol);
+      sourceExpressions.insert(sourceExpressions.end(), expressions.begin(),
+                               expressions.end());
+      sourceExpressionsMap[loadInst] = sourceExpression;
+      sourceExpressions.push_back(sourceExpression);
+    } else if (llvm::StoreInst *storeInst =
+                   llvm::dyn_cast<llvm::StoreInst>(user)) {
+      llvm::Value *storedValue = storeInst->getValueOperand();
+      std::string sourceExpression;
+      if (llvm::LoadInst *loadInst =
+              llvm::dyn_cast<llvm::LoadInst>(storedValue)) {
+        if (llvm::GetElementPtrInst *gepInst =
+                llvm::dyn_cast<llvm::GetElementPtrInst>(loadInst)) {
+          std::vector<std::string> expressions = getSourceExpressionsForValue(
+              gepInst, sourceExpressionsMap, symbol, localVar);
+          sourceExpressions.insert(sourceExpressions.end(), expressions.begin(),
+                                   expressions.end());
+        } else {
+          continue;
+        }
+      } else {
+
+        sourceExpression = getSourceExpressionForVariable(
+            localVar, storedValue, localVar->getName().str());
+        sourceExpressionsMap[storeInst] = sourceExpression;
+        sourceExpressions.push_back(sourceExpression);
+      }
+    } else if (llvm::GetElementPtrInst *gepInst =
+                   llvm::dyn_cast<llvm::GetElementPtrInst>(user)) {
+      llvm::Value *basePointer = gepInst->getOperand(0);
+      llvm::Value *offset = gepInst->getOperand(gepInst->getNumIndices());
+
+      std::string basePointerName =
+          sourceExpressionsMap.count(basePointer)
+              ? sourceExpressionsMap[basePointer]
+              : getSourceExpressionForOperand(basePointer, sourceExpressionsMap,
+                                              symbol);
+      std::string offsetName = sourceExpressionsMap.count(offset)
+                                   ? sourceExpressionsMap[offset]
+                                   : getSourceExpressionForOperand(
+                                         offset, sourceExpressionsMap, symbol);
+
+      // Construct the source expression for the address computation
+      std::string expression = "&" + basePointerName + "[" + offsetName + "]";
+
+      // Store the source expression for the current instruction
+      sourceExpressionsMap[gepInst] = expression;
+      sourceExpressions.push_back(expression);
+
+      // Process the users of the GEP instruction recursively
+      std::vector<std::string> expressions =
+          getSourceExpressionsForValue(gepInst, sourceExpressionsMap, symbol);
+      sourceExpressions.insert(sourceExpressions.end(), expressions.begin(),
+                               expressions.end());
+    }
+  }
+
+  return sourceExpressions;
+}
+
+std::string processDbgDeclareInst(
+    llvm::DbgDeclareInst *dbgDeclare,
+    llvm::DenseMap<llvm::Value *, std::string> &sourceExpressionsMap,
+    StringRef symbol) {
+  llvm::Value *llvmVal = cast<llvm::Value>(dbgDeclare->getAddress());
+
+  //  dbgs() << llvmVal->getName().str();
+
+  llvm::DILocalVariable *localVar = dbgDeclare->getVariable();
+  std::string varName = localVar->getName().str();
+  // llvmValtoLocalVarMap[llvmVal->getName()] = localVar;
+  std::vector<std::string> sourceExpressions;
+  std::string sourceExpression;
+  std::vector<std::string> expressions;
+
+  expressions = getSourceExpressionsForValue(llvmVal, sourceExpressionsMap,
+                                             symbol, localVar);
+
+  sourceExpression = getSourceExpressionForVariable(localVar, llvmVal, varName);
+
+  sourceExpressions.insert(sourceExpressions.end(), expressions.begin(),
+                           expressions.end());
+  sourceExpressions.push_back(sourceExpression);
+
+  for (StringRef expression : sourceExpressions) {
+    llvm::dbgs() << "Source-level expression is : " << expression << "\n";
+  }
+
+  return "";
+}
+
+void processDbgValueInst(
+    llvm::DbgValueInst *dbgVal,
+    llvm::DenseMap<llvm::Value *, std::string> &sourceExpressionsMap,
+    StringRef symbol) {
+  llvm::Value *llvmVal = dbgVal->getValue();
+  llvm::DILocalVariable *localVar = dbgVal->getVariable();
+  llvm::DIExpression *expr = dbgVal->getExpression();
+  std::string varName = localVar->getName().str();
+  std::vector<std::string> sourceExpressions;
+  // llvmValtoLocalVarMap[llvmVal->getName()] = localVar;
+  if (!expr->getNumElements()) {
+    std::string sourceExpression =
+        getSourceExpressionForVariable(localVar, llvmVal, varName);
+    std::vector<std::string> expressions = getSourceExpressionsForValue(
+        llvmVal, sourceExpressionsMap, symbol, localVar);
+    sourceExpressions.insert(sourceExpressions.end(), expressions.begin(),
+                             expressions.end());
+    sourceExpressions.push_back(sourceExpression);
+  } else {
+    std::string exprStr;
+    llvm::raw_string_ostream exprStream(exprStr);
+    llvmVal->printAsOperand(exprStream, false /* PrintType */);
+
+    std::stack<uint64_t> exprStack;
+
+    for (int i = 0; i < expr->getNumElements(); ++i) {
+      uint64_t element = expr->getElement(i);
+      exprStack.push(element);
+    }
+
+    while (!exprStack.empty()) {
+      uint64_t element = exprStack.top();
+      uint64_t store;
+
+      if (element == llvm::dwarf::DW_OP_constu) {
+        if (!exprStack.empty()) {
+          store = exprStack.top();
+          exprStream << store;
+        }
+        exprStack.pop();
+      } else if (element == llvm::dwarf::DW_OP_mul) {
+        exprStream << " * ";
+        exprStack.pop();
+      } else if (element == llvm::dwarf::DW_OP_minus) {
+        exprStream << " - ";
+        exprStack.pop();
+      } else if (element == llvm::dwarf::DW_OP_stack_value) {
+        exprStack.pop();
+      } else {
+        store = element;
+        exprStack.pop();
+      }
+    }
+
+    std::string expr = varName + " = " + exprStream.str();
+    sourceExpressions.push_back(expr);
+  }
+
+  for (StringRef expression : sourceExpressions) {
+    llvm::dbgs() << "Source-level expression is: " << expression << "\n";
+  }
+  // return "";
+}
+
 // This function builds source-level expressions for LLVM instructions related
 // to debug information. It handles two cases: DbgValueInst and DbgDeclareInst.
 // For DbgValueInst, it retrieves the value, local variable, and expression
@@ -208,216 +409,17 @@ std::string getSourceExpressionForVariable(llvm::DILocalVariable *localVar,
 
 std::string buildSourceLevelExpressionFromIntrinsic(llvm::Instruction &I,
                                                     StringRef symbol) {
+  std::vector<std::string> sourceExpressions;
   if (auto *dbgVal = llvm::dyn_cast<llvm::DbgValueInst>(&I)) {
-    llvm::dbgs() << I << "\n";
-    llvm::Value *llvmVal = dbgVal->getValue();
-    llvm::DILocalVariable *localVar = dbgVal->getVariable();
-    llvm::DIExpression *expr = dbgVal->getExpression();
-    std::vector<std::string> sourceExpressions;
-    std::string varName = localVar->getName().str();
-
-    if (!expr->getNumElements()) {
-      std::string sourceExpression;
-
-      sourceExpression = // getTypeExpression(localVarType);
-          getSourceExpressionForVariable(localVar, llvmVal, varName);
-
-      for (User *user : llvmVal->users()) {
-        if (llvm::GetElementPtrInst *gepInst =
-                llvm::dyn_cast<llvm::GetElementPtrInst>(user)) {
-
-          llvm::Value *basePointer = gepInst->getOperand(0);
-          llvm::Value *offset = gepInst->getOperand(gepInst->getNumIndices());
-
-          std::string basePointerName =
-              sourceExpressionsMap.count(basePointer)
-                  ? sourceExpressionsMap[basePointer]
-                  : getSourceExpressionForOperand(basePointer,
-                                                  sourceExpressionsMap, symbol);
-          std::string offsetName =
-              sourceExpressionsMap.count(offset)
-                  ? sourceExpressionsMap[offset]
-                  : getSourceExpressionForOperand(offset, sourceExpressionsMap,
-                                                  symbol);
-
-          // Construct the source expression for the address computation
-          std::string expression =
-              "&" + basePointerName + "[" + offsetName + "]";
-
-          // Store the source expression for the current instruction
-          sourceExpressionsMap[&I] = expression;
-          sourceExpressions.push_back(expression);
-        }
-      }
-
-      sourceExpressions.push_back(sourceExpression);
-    }
-
-    else {
-      std::string exprStr;
-      llvm::raw_string_ostream exprStream(exprStr);
-      llvmVal->printAsOperand(exprStream, false /* PrintType */);
-
-      std::stack<uint64_t> exprStack;
-
-      for (int i = 0; i < expr->getNumElements(); ++i) {
-        uint64_t element = expr->getElement(i);
-        exprStack.push(element);
-      }
-
-      while (!exprStack.empty()) {
-        uint64_t element = exprStack.top();
-        uint64_t store;
-
-        if (element == llvm::dwarf::DW_OP_constu) {
-          if (!exprStack.empty()) {
-            store = exprStack.top();
-            exprStream << store;
-          }
-          exprStack.pop();
-        } else if (element == llvm::dwarf::DW_OP_mul) {
-          exprStream << " * ";
-          exprStack.pop();
-        } else if (element == llvm::dwarf::DW_OP_minus) {
-          exprStream << " - ";
-          exprStack.pop();
-        } else if (element == llvm::dwarf::DW_OP_stack_value) {
-          exprStack.pop();
-        } else {
-          store = element;
-          exprStack.pop();
-        }
-      }
-
-      std::string expr = varName + " = " + exprStream.str();
-      sourceExpressions.push_back(expr);
-      //   dbgs() << "Source-level expression is " << SourceExpression << " = "
-      //   << expr << "\n";
-      // return "";
-    }
-
-    for (StringRef expression : sourceExpressions) {
-      dbgs() << "Source-level expression is: " << expression.str() << "\n";
-    }
-
-    return "";
+    dbgs() << I << "\n";
+    processDbgValueInst(dbgVal, sourceExpressionsMap, symbol);
 
   } else if (auto *dbgDeclare = dyn_cast<DbgDeclareInst>(&I)) {
     dbgs() << I << "\n";
-    // errs() << "Decl";
-    Value *llvmVal = cast<Value>(dbgDeclare->getAddress());
-    std::string sourceExpression;
-    DILocalVariable *localVar = dbgDeclare->getVariable();
-    std::string varName = localVar->getName().str();
-    AllocaInst *allocaInst = cast<AllocaInst>(llvmVal);
-    std::vector<std::string> sourceExpressions;
-    auto localVarType = localVar->getType();
-
-    for (User *user : allocaInst->users()) {
-      if (auto *storeInst = dyn_cast<StoreInst>(user)) {
-        Value *storedValue = storeInst->getValueOperand();
-        std::string sourceExpression;
-
-        if (auto *loadInst = dyn_cast<LoadInst>(storedValue)) {
-          Value *loadedValue = loadInst->getPointerOperand();
-          sourceExpression =
-              getSourceExpressionForVariable(localVar, loadedValue, varName);
-        } else {
-          sourceExpression =
-              getSourceExpressionForVariable(localVar, storedValue, varName);
-        }
-
-        sourceExpressions.push_back(sourceExpression);
-      }
-    }
-
-    for (StringRef expression : sourceExpressions) {
-      dbgs() << "Source-level expression is: " << expression.str() << "\n";
-    }
-    return "";
+    processDbgDeclareInst(dbgDeclare, sourceExpressionsMap, symbol);
   }
+
   return "";
-}
-
-std::string
-buildSourceLevelExpressionWithRawInstruction(llvm::Instruction &I,
-                                             const std::string &symbol) {
-  std::string sourceExpression = "nullptr";
-
-  if (llvm::BinaryOperator *binaryOp =
-          llvm::dyn_cast<llvm::BinaryOperator>(&I)) {
-    // Binary operator - build source expression using two operands
-    llvm::Value *operand1 = binaryOp->getOperand(0);
-    llvm::Value *operand2 = binaryOp->getOperand(1);
-
-    // Check if source expressions exist for the operands
-    std::string name1 = sourceExpressionsMap.count(operand1)
-                            ? sourceExpressionsMap[operand1]
-                            : operand1->getNameOrAsOperand();
-    std::string name2 = sourceExpressionsMap.count(operand2)
-                            ? sourceExpressionsMap[operand2]
-                            : operand2->getNameOrAsOperand();
-
-    // Construct the source expression using variable names and the symbol
-    sourceExpression = "(" + name1 + " " + symbol + " " + name2 + ")";
-
-    // Store the source expression for the current instruction
-    sourceExpressionsMap[&I] = sourceExpression;
-  } else if (llvm::GetElementPtrInst *gepInst =
-                 llvm::dyn_cast<llvm::GetElementPtrInst>(&I)) {
-
-    llvm::Value *basePointer = gepInst->getOperand(0);
-    llvm::Value *offset = gepInst->getOperand(gepInst->getNumIndices());
-
-    std::string basePointerName = sourceExpressionsMap.count(basePointer)
-                                      ? sourceExpressionsMap[basePointer]
-                                      : basePointer->getNameOrAsOperand();
-    std::string offsetName = sourceExpressionsMap.count(offset)
-                                 ? sourceExpressionsMap[offset]
-                                 : offset->getNameOrAsOperand();
-
-    // Construct the source expression for the address computation
-    sourceExpression = "&" + basePointerName + "[" + offsetName + "]";
-
-    // Store the source expression for the current instruction
-    sourceExpressionsMap[&I] = sourceExpression;
-  } else if (llvm::LoadInst *loadInst = llvm::dyn_cast<llvm::LoadInst>(&I)) {
-    llvm::Value *address = loadInst->getOperand(0);
-
-    // Check if source expressions exist for the address operand
-    std::string addressName = sourceExpressionsMap.count(address)
-                                  ? sourceExpressionsMap[address]
-                                  : address->getNameOrAsOperand();
-
-    // Construct the source expression for accessing the value
-    sourceExpression = "*(" + addressName + ")";
-
-    // Store the source expression for the current instruction
-    sourceExpressionsMap[&I] = sourceExpression;
-  } else if (llvm::StoreInst *storeInst = llvm::dyn_cast<llvm::StoreInst>(&I)) {
-    llvm::Value *value = storeInst->getValueOperand();
-    llvm::Value *address = storeInst->getPointerOperand();
-
-    std::string valueName = sourceExpressionsMap.count(value)
-                                ? sourceExpressionsMap[value]
-                                : value->getNameOrAsOperand();
-    std::string addressName = sourceExpressionsMap.count(address)
-                                  ? sourceExpressionsMap[address]
-                                  : address->getNameOrAsOperand();
-
-    sourceExpression = /*"*" +*/ addressName + " = " + valueName;
-  } else if (llvm::UnaryOperator *unaryOp =
-                 llvm::dyn_cast<llvm::UnaryOperator>(&I)) {
-    dbgs() << "gelement";
-    llvm::Value *operand = unaryOp->getOperand(0);
-
-    std::string name = operand->getNameOrAsOperand();
-
-    // Construct the source expression using the variable name and the symbol
-    sourceExpression = name + symbol;
-  }
-
-  return sourceExpression;
 }
 
 // This method implements what the pass does
@@ -433,6 +435,15 @@ void visitor(Function &F) {
 
       std::string srcExx = buildSourceLevelExpressionFromIntrinsic(I, symbol);
     }
+  }
+
+  for (const auto &pair : sourceExpressionsMap) {
+    llvm::Value *value = pair.first;
+    StringRef sourceExpr = pair.second;
+
+    llvm::outs() << "Value: " << value->getNameOrAsOperand() << "\n";
+    llvm::outs() << "Source Expression: " << sourceExpr << "\n";
+    llvm::outs() << "--------------------------\n";
   }
 }
 
