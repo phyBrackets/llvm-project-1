@@ -83,6 +83,7 @@ add_llvm_component_library(LLVMAnalysis
   LazyValueInfo.cpp
   Lint.cpp
   Loads.cpp
+  LoadStoreAnalysis.cpp
   Local.cpp
   LoopAccessAnalysis.cpp
   LoopAnalysisManager.cpp
@@ -161,3 +162,5 @@ add_llvm_component_library(LLVMAnalysis
   Support
   TargetParser
   )
+
+  add_llvm_pass_plugin(LSAnalysis LoadStoreAnalysis.cpp)
