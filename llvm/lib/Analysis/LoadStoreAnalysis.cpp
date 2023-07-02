@@ -12,50 +12,28 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/Analysis/LoadStoreAnalysis.h"
+
+#include "llvm/Passes/PassPlugin.h"
 #include "llvm/BinaryFormat/Dwarf.h"
 #include "llvm/IR/DebugInfo.h"
 #include "llvm/IR/DebugInfoMetadata.h"
 #include "llvm/IR/DiagnosticInfo.h"
-#include "llvm/IR/Function.h"
 #include "llvm/IR/InstIterator.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/LegacyPassManager.h"
-#include "llvm/Pass.h"
-#include "llvm/Passes/PassBuilder.h"
-#include "llvm/Passes/PassPlugin.h"
-#include "llvm/Support/CommandLine.h"
-#include "llvm/Support/raw_ostream.h"
-#include "llvm/Transforms/Utils/Local.h"
-#include <llvm/ADT/DenseMapInfo.h>
-#include <optional>
-#include <stack>
-#include <unordered_map>
 
 using namespace llvm;
 
-#define DEBUG_TYPE "source_pass"
-
-namespace {
-
-// This map associates StoreInst pointers with their corresponding LoadInst
-// pointers. It is used to track the relationship between store and load
-// instructions for later processing.
-
-llvm::DenseMap<StoreInst *, LoadInst *> loadStoreMap;
-
-// This map stores the source-level expressions for LLVM values.
-// The expressions are represented as strings and are associated with the
-// corresponding values. It is used to cache and retrieve source expressions
-// during the generation process.
-
-llvm::DenseMap<llvm::Value *, std::string> sourceExpressionsMap;
+#define DEBUG_TYPE "source_expr"
 
 // This function translates LLVM opcodes to source-level expressions using DWARF
 // operation encodings. It returns the source-level expression corresponding to
 // the input opcode or "unknown" if the opcode is unsupported.
 
-std::string getExpressionFromOpcode(StringRef opcode) {
+std::string
+LoadStoreSourceExpression::getExpressionFromOpcode(StringRef opcode) {
   // Map LLVM opcodes to source-level expressions
   std::string expression;
 
@@ -92,8 +70,10 @@ std::string getExpressionFromOpcode(StringRef opcode) {
 
 // Function to remove the '&' character from a string
 
-std::string removeAmpersand(const std::string &str) {
-  std::string result = str;
+std::string
+LoadStoreSourceExpression::removeAmpersand(llvm::StringRef AddrStr) {
+  std::string result = AddrStr.str();
+
   size_t found = result.find('&');
   if (found != std::string::npos) {
     result.erase(found, 1);
@@ -112,7 +92,7 @@ std::string removeAmpersand(const std::string &str) {
 // doesn't match any specific case, it returns its name or operand
 // representation.
 
-std::string getSourceExpression(
+std::string LoadStoreSourceExpression::getSourceExpression(
     llvm::Value *operand,
     llvm::DenseMap<llvm::Value *, std::string> &sourceExpressionsMap,
     StringRef symbol) {
@@ -187,10 +167,10 @@ std::string getSourceExpression(
             ? sourceExpressionsMap[operandVal]
             : getSourceExpression(operandVal, sourceExpressionsMap, symbol);
     // Construct the source expression using the operand name and the symbol
-    std::string expression = operandName;
-    sourceExpressionsMap[operandVal] = expression;
+    // std::string expression = operandName.str();
+    sourceExpressionsMap[operandVal] = operandName;
 
-    return expression;
+    return operandName;
   } else if (llvm::StoreInst *storeInst =
                  llvm::dyn_cast<llvm::StoreInst>(operand)) {
     // Store instruction - return the source expression for its value operand
@@ -202,10 +182,10 @@ std::string getSourceExpression(
             ? sourceExpressionsMap[operandVal]
             : getSourceExpression(operandVal, sourceExpressionsMap, symbol);
     // Construct the source expression using the operand name and the symbol
-    std::string expression = operandName;
-    sourceExpressionsMap[storeInst->getPointerOperand()] = expression;
+    // std::string expression = operandName;
+    sourceExpressionsMap[storeInst->getPointerOperand()] = operandName;
 
-    return expression;
+    return operandName;
   } else if (llvm::SExtInst *sextInst =
                  llvm::dyn_cast<llvm::SExtInst>(operand)) {
     // Signed Extension instruction - return the source expression for its
@@ -219,7 +199,6 @@ std::string getSourceExpression(
             : getSourceExpression(operandVal, sourceExpressionsMap, symbol);
 
     sourceExpressionsMap[operandVal] = operandName;
-
     return operandName;
   }
 
@@ -230,10 +209,10 @@ std::string getSourceExpression(
 
 // Process the StoreInst and generate the source expression for the stored
 // value.
-std::string processStoreInst(
+std::string LoadStoreSourceExpression::processStoreInst(
     llvm::StoreInst *I,
     llvm::DenseMap<llvm::Value *, std::string> &sourceExpressionsMap,
-    StringRef symbol, bool loadFlag = false) {
+    StringRef symbol, bool loadFlag) {
 
   llvm::Value *storedValue = I->getPointerOperand();
   llvm::SmallVector<llvm::DbgValueInst *, 8> DbgValues;
@@ -294,7 +273,7 @@ std::string processStoreInst(
 
 // Process the LoadInst and generate the source expressions for the loaded value
 // and its corresponding store instruction (if applicable).
-void processLoadInst(
+void LoadStoreSourceExpression::processLoadInst(
     llvm::LoadInst *I,
     llvm::DenseMap<llvm::Value *, std::string> &sourceExpressionsMap,
     StringRef symbol) {
@@ -310,10 +289,10 @@ void processLoadInst(
       std::string expression =
           processStoreInst(storeInst, sourceExpressionsMap, symbol, true);
 
-      expression = removeAmpersand(expression);
+      // expression = removeAmpersand(expression);
 
       // Map the LoadInst to its source expression in the sourceExpressionsMap
-      sourceExpressionsMap[I] = expression;
+      sourceExpressionsMap[I] = removeAmpersand(expression);
 
       break; // Assuming there is only one store instruction for the load
     }
@@ -334,16 +313,17 @@ void processLoadInst(
     }
 
     // Check if the expression contains '&'
-    std::string modifiedExpression = removeAmpersand(expression);
+    // expression = removeAmpersand(expression);
 
     // Map the LoadInst to its source expression in the sourceExpressionsMap
-    sourceExpressionsMap[I] = modifiedExpression;
+    sourceExpressionsMap[I] = removeAmpersand(expression);
   }
 }
 
 // Build the source level expression for the given LLVM instruction
-std::optional<std::string> buildSourceLevelExpression(llvm::Instruction &I,
-                                                      std::string symbol) {
+std::optional<std::string>
+LoadStoreSourceExpression::buildSourceLevelExpression(llvm::Instruction &I,
+                                                      StringRef symbol) {
   llvm::SmallVector<std::string> sourceExpressions;
 
   // Check if the instruction is a LoadInst
@@ -363,68 +343,85 @@ std::optional<std::string> buildSourceLevelExpression(llvm::Instruction &I,
   return {};
 }
 
-// This method implements what the pass does
-void visitor(Function &F) {
-  errs() << "Source level Mapping for function " << F.getName() << "\n";
-  errs() << "Number of arguments: " << F.arg_size() << "\n";
-
-  for (BasicBlock &BB : F) {
-    for (Instruction &I : BB) {
-      //     errs() << I << "foo";
-      std::string operation = llvm::Instruction::getOpcodeName(I.getOpcode());
-      std::string symbol = getExpressionFromOpcode(operation);
-
-      auto srcExx = buildSourceLevelExpression(I, symbol);
-    }
-  }
+void LoadStoreSourceExpression::print(raw_ostream &OS) const {
 
   for (const auto &entry : sourceExpressionsMap) {
     llvm::Value *key = entry.first;
     std::string value = entry.second;
 
     // Print the key
-    dbgs() << "Key: ";
+    OS << "Key: ";
     if (llvm::Instruction *keyInst = llvm::dyn_cast<llvm::Instruction>(key)) {
       keyInst->printAsOperand(dbgs(), /*PrintType=*/false);
     } else {
-      dbgs() << "<unknown>";
+      OS << "<unknown>";
     }
-    dbgs() << " - Values: " << value;
+    OS << " - Values: " << value;
 
-    dbgs() << "\n";
+    OS << "\n";
   }
 }
 
-// New PM implementation
-struct LoadStoreAnalysisPass : llvm::AnalysisInfoMixin<LoadStoreAnalysisPass> {
-  // Main entry point, takes IR unit to run the pass on (&F) and the
-  // corresponding pass manager (to be queried if need be)
-  PreservedAnalyses run(Function &F, FunctionAnalysisManager &) {
-    visitor(F);
-    return PreservedAnalyses::all();
+AnalysisKey LoadStoreAnalysis::Key;
+LoadStoreAnalysis::Result LoadStoreAnalysis::run(Function &F,
+                                                 FunctionAnalysisManager &) {
+  return LoadStoreSourceExpression(F);
+}
+
+PreservedAnalyses
+LoadStoreAnalysisPrinterPass::run(Function &F, FunctionAnalysisManager &AM) {
+  OS << "Load Store Expression " << F.getName() << "\n";
+  LoadStoreAnalysis::Result &PI = AM.getResult<LoadStoreAnalysis>(
+      F); // Retrieve the correct analysis result type
+  for (BasicBlock &BB : F) {
+    for (Instruction &I : BB) {
+      std::string operation = llvm::Instruction::getOpcodeName(I.getOpcode());
+      std::string symbol = PI.getExpressionFromOpcode(operation);
+
+      auto srcExx = PI.buildSourceLevelExpression(I, symbol);
+    }
   }
 
-  // Without isRequired returning true, this pass will be skipped for functions
-  // decorated with the optnone LLVM attribute. Note that clang -O0 decorates
-  // all functions with optnone.
-  static bool isRequired() { return true; }
-};
-
-} // namespace
+  PI.print(OS);
+  return PreservedAnalyses::all();
+}
 
 llvm::PassPluginLibraryInfo getSourceExprPluginInfo() {
-  return {LLVM_PLUGIN_API_VERSION, "LoadStoreMap", LLVM_VERSION_STRING,
-          [](PassBuilder &PB) {
-            PB.registerPipelineParsingCallback(
-                [](StringRef Name, FunctionPassManager &FPM,
-                   ArrayRef<PassBuilder::PipelineElement>) {
-                  if (Name == "source-expr") {
-                    FPM.addPass(LoadStoreAnalysisPass());
-                    return true;
-                  }
-                  return false;
-                });
-          }};
+  return {
+
+      LLVM_PLUGIN_API_VERSION, "LoadStore", LLVM_VERSION_STRING,
+      [](PassBuilder &PB) {
+        // Register LoadStoreAnalysisPrinterPass so that it can be used when
+        // specifying pass pipelines with `-passes=`.
+        PB.registerPipelineParsingCallback(
+            [&](StringRef Name, FunctionPassManager &FPM,
+                ArrayRef<PassBuilder::PipelineElement>) {
+              if (Name == "source-expr") {
+                FPM.addPass(LoadStoreAnalysisPrinterPass(llvm::outs()));
+                return true;
+              }
+              return false;
+            });
+
+        // REGISTRATION FOR "-O{1|2|3|s}"
+        // Register LoadStoreAnalysisPrinterPass as a step of an existing
+        // pipeline. The insertion point is specified by using the
+        // 'registerVectorizerStartEPCallback' callback. To be more precise,
+        // using this callback means that OpcodeCounterPrinter will be called
+        // whenever the vectoriser is used (i.e. when using '-O{1|2|3|s}'.
+        PB.registerVectorizerStartEPCallback(
+            [](llvm::FunctionPassManager &PM, llvm::OptimizationLevel Level) {
+              PM.addPass(LoadStoreAnalysisPrinterPass(llvm::outs()));
+            });
+
+        // Register LoadStoreAnalysis as an analysis pass. This is required so
+        // that OpcodeCounterPrinter (or any other pass) can request the results
+        // of OpcodeCounter.
+        PB.registerAnalysisRegistrationCallback(
+            [](FunctionAnalysisManager &FAM) {
+              FAM.registerPass([&] { return LoadStoreAnalysis(); });
+            });
+      }};
 }
 
 extern "C" LLVM_ATTRIBUTE_WEAK ::llvm::PassPluginLibraryInfo
