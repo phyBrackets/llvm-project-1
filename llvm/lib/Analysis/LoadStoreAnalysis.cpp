@@ -407,7 +407,7 @@ llvm::PassPluginLibraryInfo getSourceExprPluginInfo() {
         // Register LoadStoreAnalysisPrinterPass as a step of an existing
         // pipeline. The insertion point is specified by using the
         // 'registerVectorizerStartEPCallback' callback. To be more precise,
-        // using this callback means that OpcodeCounterPrinter will be called
+        // using this callback means that LoadStoreAnalysisPrinterPass will be called
         // whenever the vectoriser is used (i.e. when using '-O{1|2|3|s}'.
         PB.registerVectorizerStartEPCallback(
             [](llvm::FunctionPassManager &PM, llvm::OptimizationLevel Level) {
@@ -415,8 +415,8 @@ llvm::PassPluginLibraryInfo getSourceExprPluginInfo() {
             });
 
         // Register LoadStoreAnalysis as an analysis pass. This is required so
-        // that OpcodeCounterPrinter (or any other pass) can request the results
-        // of OpcodeCounter.
+        // that LoadStoreAnalysisPrinterPass (or any other pass) can request the results
+        // of LoadStoreAnalysis.
         PB.registerAnalysisRegistrationCallback(
             [](FunctionAnalysisManager &FAM) {
               FAM.registerPass([&] { return LoadStoreAnalysis(); });
