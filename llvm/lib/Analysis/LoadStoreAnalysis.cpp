@@ -14,7 +14,6 @@
 
 #include "llvm/Analysis/LoadStoreAnalysis.h"
 
-#include "llvm/Passes/PassPlugin.h"
 #include "llvm/BinaryFormat/Dwarf.h"
 #include "llvm/IR/DebugInfo.h"
 #include "llvm/IR/DebugInfoMetadata.h"
@@ -23,7 +22,8 @@
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/LegacyPassManager.h"
-
+#include "llvm/Passes/PassPlugin.h"
+#include <unordered_map>
 using namespace llvm;
 
 #define DEBUG_TYPE "source_expr"
@@ -81,6 +81,124 @@ LoadStoreSourceExpression::removeAmpersand(llvm::StringRef AddrStr) {
   return result;
 }
 
+/**
+ * Process the given DIType and perform type-specific actions based on its kind.
+ * This function recursively traverses the type hierarchy to handle basic types,
+ * derived types, and composite types (such as structures and arrays). For basic
+ * types, information about the member is stored in the memberInfo map. For
+ * derived types, the processDIType function is called recursively with the base
+ * type. For structures, each element is processed recursively using the
+ * processDIType function. For arrays, the base type is processed recursively
+ * with the same member name.
+ *
+ * @param dinode The DIType to process.
+ * @param basePointer The base pointer value associated with the DIType.
+ * @param memberName The name of the member, if applicable.
+ * @return An optional string indicating the type of the DIType, or an empty
+ * optional if the type is not recognized.
+ */
+
+std::optional<std::string> LoadStoreSourceExpression::processDIType(
+    llvm::DIType *diType, llvm::Value *basePointer, std::string memberName) {
+  // Check if the DIType is valid
+  if (!diType) {
+    return {};
+  }
+
+  // Process basic types
+  if (auto *basicType = llvm::dyn_cast<llvm::DIBasicType>(diType)) {
+    // Store information about the member
+    memberInfo[basePointer->getName()].push_back(
+        {basicType->getName().str(), memberName});
+  }
+  // Process derived types
+  else if (auto *derivedType = llvm::dyn_cast<llvm::DIDerivedType>(diType)) {
+    std::string derivedMemberName = derivedType->getName().str();
+    auto *type = derivedType->getBaseType();
+    processDIType(type, basePointer, derivedMemberName);
+  }
+  // Process composite types (structures and arrays)
+  else if (auto *compositeType =
+               llvm::dyn_cast<llvm::DICompositeType>(diType)) {
+    // Check if the composite type is a structure
+    if (compositeType->getTag() == llvm::dwarf::DW_TAG_structure_type) {
+      auto nodeArray = compositeType->getElements();
+      if (nodeArray) {
+        // Iterate over the elements of the structure
+        for (unsigned i = 0; i < nodeArray.size(); ++i) {
+          llvm::Metadata *metadata = nodeArray[i];
+          llvm::DIType *nestedDINode = llvm::dyn_cast<llvm::DIType>(metadata);
+          processDIType(nestedDINode, basePointer);
+        }
+      }
+      return "Struct";
+    }
+    // Check if the composite type is an array
+    else if (compositeType->getTag() == llvm::dwarf::DW_TAG_array_type) {
+      auto *baseType = compositeType->getBaseType();
+      processDIType(baseType, basePointer, memberName);
+      // return "Array";
+    }
+  }
+
+  // Return the result of processing the DIType with nullptr, basePointer, and
+  // memberName
+  return processDIType(nullptr, basePointer, memberName);
+}
+
+/**
+ * Process the base pointer to determine its type and handle different
+ * scenarios. If the base pointer is associated with debug metadata
+ * (DbgDeclareInst or DbgValueInst), retrieve the corresponding DILocalVariable
+ * and extract its type. Then, the type is processed further using the
+ * processDIType function to obtain additional information.
+ *
+ * @param basePointer The base pointer value to process.
+ * @return An optional string representing the type of the base pointer, or an
+ * empty optional if the type is unknown.
+ */
+
+std::optional<std::string>
+LoadStoreSourceExpression::processBasePointer(llvm::Value *basePointer) {
+  llvm::SmallVector<llvm::DbgValueInst *, 8> DbgValues;
+  llvm::DILocalVariable *localVar = nullptr;
+  llvm::DIType *type = nullptr;
+
+  if (basePointer->isUsedByMetadata()) {
+    // Find the corresponding DbgValues and DbgDeclareInsts
+    findDbgValues(DbgValues, basePointer);
+    TinyPtrVector<DbgDeclareInst *> dbgDeclareInsts =
+        FindDbgDeclareUses(basePointer);
+
+    if (!dbgDeclareInsts.empty()) {
+      // Handle the case where DbgDeclareInst is found
+      DbgDeclareInst *dbgDeclareInst = dbgDeclareInsts[0];
+      localVar = dbgDeclareInst->getVariable();
+      sourceExpressionsMap[basePointer] = localVar->getName().str();
+    } else if (!DbgValues.empty()) {
+      // Handle the case where DbgValueInst is found
+      DbgValueInst *dbgValueInst = DbgValues[0];
+      localVar = dbgValueInst->getVariable();
+      sourceExpressionsMap[basePointer] = localVar->getName().str();
+    }
+  }
+
+  if (localVar) {
+    type = localVar->getType();
+  }
+
+  if (type) {
+    std::optional<std::string> result = processDIType(type, basePointer);
+    if (result.has_value()) {
+      std::string type = result.value();
+      return type;
+      // Process the obtained type as needed
+    }
+  }
+
+  return std::nullopt;
+}
+
 // This function generates the source-level expression for a given operand
 // by recursively traversing the operand's instructions. If the operand is a
 // GetElementPtr instruction, it constructs the expression for the address
@@ -101,9 +219,30 @@ std::string LoadStoreSourceExpression::getSourceExpression(
           llvm::dyn_cast<llvm::GetElementPtrInst>(operand)) {
     // GetElementPtr instruction - construct source expression for address
     // computation
-
     llvm::Value *basePointer = gepInst->getOperand(0);
     llvm::Value *offset = gepInst->getOperand(gepInst->getNumIndices());
+
+    int offsetVal = 0;
+    if (llvm::ConstantInt *offsetConstant =
+            llvm::dyn_cast<llvm::ConstantInt>(offset)) {
+      // Retrieve the value of the constant integer as an integer
+      offsetVal = offsetConstant->getSExtValue();
+    }
+
+    // Check if the base pointer is an AllocaInst and if its allocated type is
+    // an ArrayType
+    if (llvm::AllocaInst *allocaInst =
+            llvm::dyn_cast<llvm::AllocaInst>(basePointer)) {
+      llvm::Type *allocaType = allocaInst->getAllocatedType();
+      if (llvm::ArrayType *arrType =
+              llvm::dyn_cast<llvm::ArrayType>(allocaType)) {
+        checkArrayType[basePointer->getNameOrAsOperand()] = true;
+      }
+    }
+    // Check if the base pointer is of PointerType
+    else if (isa<llvm::PointerType>(basePointer->getType())) {
+      checkArrayType[basePointer->getNameOrAsOperand()] = true;
+    }
 
     std::string basePointerName =
         sourceExpressionsMap.count(basePointer)
@@ -120,17 +259,38 @@ std::string LoadStoreSourceExpression::getSourceExpression(
                   getExpressionFromOpcode(
                       llvm::Instruction::getOpcodeName(gepInst->getOpcode())));
 
-    // Construct the source expression for the address computation
-
     std::string expression;
-    if (basePointerName.find('[') != std::string::npos) {
-      // If basePointerName already contains square brackets, combine it with
-      // offsetName directly
-      expression = basePointerName + " + " + offsetName;
-    } else {
-      // Construct the source expression for the address computation with square
-      // brackets
-      expression = "&" + basePointerName + "[" + offsetName + "]";
+    if (basePointer->getType()) {
+      // Process the base pointer to determine its type
+      std::optional<std::string> result = processBasePointer(basePointer);
+      if (result && result.value() == "Struct") {
+        // If the base pointer type is a structure, construct the source
+        // expression using member info
+        expression = basePointerName + "." +
+                     memberInfo[basePointer->getName()].at(offsetVal).second;
+      } else {
+        if (basePointerName.find('[') == std::string::npos &&
+            checkArrayType[basePointer->getNameOrAsOperand()]) {
+          // Construct the source expression for the address computation with
+          // square brackets
+          expression = '&' + basePointerName + '[' + offsetName + ']';
+        } else if (basePointerName.find('[') != std::string::npos &&
+                   basePointerName.find('&') != std::string::npos &&
+                   checkArrayType[basePointer->getNameOrAsOperand()]) {
+          size_t found = basePointerName.find('&');
+          if (found != std::string::npos) {
+            basePointerName.erase(found, 1);
+          }
+          // If basePointerName already contains square brackets, combine it
+          // with offsetName directly
+          expression = basePointerName + "[" + offsetName + "]";
+        } else if (basePointerName.find('[') != std::string::npos &&
+                   !checkArrayType[basePointer->getNameOrAsOperand()]) {
+          // If basePointerName already contains square brackets, combine it
+          // with offsetName directly
+          expression = basePointerName + " + " + offsetName;
+        }
+      }
     }
 
     sourceExpressionsMap[gepInst] = expression;
@@ -213,13 +373,13 @@ std::string LoadStoreSourceExpression::processStoreInst(
     llvm::StoreInst *I,
     llvm::DenseMap<llvm::Value *, std::string> &sourceExpressionsMap,
     StringRef symbol, bool loadFlag) {
-
   llvm::Value *storedValue = I->getPointerOperand();
   llvm::SmallVector<llvm::DbgValueInst *, 8> DbgValues;
   std::string sourceExpression;
   llvm::DILocalVariable *localVar;
 
   // Check if the stored value is used by metadata (debug information)
+
   if (storedValue->isUsedByMetadata()) {
     // Find the corresponding DbgValues and DbgDeclareInsts
     findDbgValues(DbgValues, storedValue);
@@ -234,6 +394,7 @@ std::string LoadStoreSourceExpression::processStoreInst(
     } else if (!DbgValues.empty()) {
       // Handle the case where DbgValueInst is found
       DbgValueInst *dbgValueInst = DbgValues[0];
+      localVar = dbgValueInst->getVariable();
       sourceExpressionsMap[storedValue] = localVar->getName().str();
     }
   }
@@ -333,6 +494,7 @@ LoadStoreSourceExpression::buildSourceLevelExpression(llvm::Instruction &I,
   }
   // If it is a StoreInst
   else if (auto *storeInst = llvm::dyn_cast<StoreInst>(&I)) {
+
     // Check if the StoreInst has not been processed already
     if (loadStoreMap.count(storeInst) == 0) {
       // Process the StoreInst and generate the source expressions
