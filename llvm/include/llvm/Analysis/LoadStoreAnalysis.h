@@ -39,11 +39,28 @@ private:
   // corresponding values. It is used to cache and retrieve source expressions
   // during the generation process.
   llvm::DenseMap<llvm::Value *, std::string> sourceExpressionsMap;
-
   const Function &F;
 
   // Remove the ampersand character from a string.
   std::string removeAmpersand(llvm::StringRef str);
+
+  // It is used to store information about the members of a structure.
+  llvm::DenseMap<StringRef, std::vector<std::pair<std::string, std::string>>>
+      memberInfo;
+
+  // It processes the basePointer to obtain its type information and returns the
+  // result as an std::optional<std::string>.
+  std::optional<std::string> processBasePointer(llvm::Value *basePointer);
+
+  //  It returns an std::optional<std::string> that may contain a string
+  //  representing the processed type information.
+  std::optional<std::string> processDIType(llvm::DIType *diType,
+                                           llvm::Value *basePointer,
+                                           std::string memberName = "");
+
+  //  It is used to track whether a certain array type has been encountered or
+  //  not.
+  std::unordered_map<std::string, bool> checkArrayType;
 
   // Get the source-level expression for an LLVM value.
   std::string getSourceExpression(
