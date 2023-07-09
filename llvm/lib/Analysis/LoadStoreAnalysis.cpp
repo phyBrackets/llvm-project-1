@@ -310,9 +310,29 @@ std::string LoadStoreSourceExpression::getSourceExpression(
         sourceExpressionsMap.count(operand2)
             ? sourceExpressionsMap[operand2]
             : getSourceExpression(operand2, sourceExpressionsMap, symbol);
-    std::string expression =
-        "(" + name1 + " " + getExpressionFromOpcode(binaryOp->getOpcodeName()) +
-        " " + name2 + ")";
+    std::string opcode = binaryOp->getOpcodeName();
+    std::string expression;
+    if (opcode == "add") {
+      if (llvm::ConstantInt *constantInt =
+              llvm::dyn_cast<llvm::ConstantInt>(operand2)) {
+        if (constantInt->isNegative()) {
+          // Modify the expression for addition with a negative value
+          llvm::APInt absValue = constantInt->getValue().abs();
+          llvm::SmallVector<char, 16> str;
+          absValue.toString(str, 10, false);
+          std::string absValueStr(str.begin(), str.end());
+          if (constantInt->isNegative())
+            expression = "(" + name1 + " - " + absValueStr + ")";
+        }
+      }
+    }
+
+    if (expression.empty()) {
+      // If no modification is needed, use the original expression generation
+      expression = "(" + name1 + " " + getExpressionFromOpcode(opcode) + " " +
+                   name2 + ")";
+    }
+
     sourceExpressionsMap[operand] = expression;
 
     return expression;
@@ -569,16 +589,17 @@ llvm::PassPluginLibraryInfo getSourceExprPluginInfo() {
         // Register LoadStoreAnalysisPrinterPass as a step of an existing
         // pipeline. The insertion point is specified by using the
         // 'registerVectorizerStartEPCallback' callback. To be more precise,
-        // using this callback means that LoadStoreAnalysisPrinterPass will be called
-        // whenever the vectoriser is used (i.e. when using '-O{1|2|3|s}'.
+        // using this callback means that LoadStoreAnalysisPrinterPass will be
+        // called whenever the vectoriser is used (i.e. when using
+        // '-O{1|2|3|s}'.
         PB.registerVectorizerStartEPCallback(
             [](llvm::FunctionPassManager &PM, llvm::OptimizationLevel Level) {
               PM.addPass(LoadStoreAnalysisPrinterPass(llvm::outs()));
             });
 
         // Register LoadStoreAnalysis as an analysis pass. This is required so
-        // that LoadStoreAnalysisPrinterPass (or any other pass) can request the results
-        // of LoadStoreAnalysis.
+        // that LoadStoreAnalysisPrinterPass (or any other pass) can request the
+        // results of LoadStoreAnalysis.
         PB.registerAnalysisRegistrationCallback(
             [](FunctionAnalysisManager &FAM) {
               FAM.registerPass([&] { return LoadStoreAnalysis(); });
