@@ -259,21 +259,22 @@ std::string LoadStoreSourceExpression::getSourceExpression(
                   getExpressionFromOpcode(
                       llvm::Instruction::getOpcodeName(gepInst->getOpcode())));
 
-    std::string expression;
+    llvm::SmallString<32> expression;
+    llvm::raw_svector_ostream OS(expression);
     if (basePointer->getType()) {
       // Process the base pointer to determine its type
       std::optional<std::string> result = processBasePointer(basePointer);
       if (result && result.value() == "Struct") {
         // If the base pointer type is a structure, construct the source
         // expression using member info
-        expression = basePointerName + "." +
-                     memberInfo[basePointer->getName()].at(offsetVal).second;
+        OS << basePointerName << "."
+           << memberInfo[basePointer->getName()].at(offsetVal).second;
       } else {
         if (basePointerName.find('[') == std::string::npos &&
             checkArrayType[basePointer->getNameOrAsOperand()]) {
           // Construct the source expression for the address computation with
           // square brackets
-          expression = '&' + basePointerName + '[' + offsetName + ']';
+          OS << "&" << basePointerName << "[" << offsetName << "]";
         } else if (basePointerName.find('[') != std::string::npos &&
                    basePointerName.find('&') != std::string::npos &&
                    checkArrayType[basePointer->getNameOrAsOperand()]) {
@@ -283,19 +284,19 @@ std::string LoadStoreSourceExpression::getSourceExpression(
           }
           // If basePointerName already contains square brackets, combine it
           // with offsetName directly
-          expression = basePointerName + "[" + offsetName + "]";
+          OS << basePointerName << "[" << offsetName << "]";
         } else if (basePointerName.find('[') != std::string::npos &&
                    !checkArrayType[basePointer->getNameOrAsOperand()]) {
           // If basePointerName already contains square brackets, combine it
           // with offsetName directly
-          expression = basePointerName + " + " + offsetName;
+          OS << basePointerName << " + " << offsetName;
         }
       }
     }
 
-    sourceExpressionsMap[gepInst] = expression;
+    sourceExpressionsMap[gepInst] = expression.str().str();
 
-    return expression;
+    return expression.str().str();
   } else if (llvm::BinaryOperator *binaryOp =
                  llvm::dyn_cast<llvm::BinaryOperator>(operand)) {
     // Binary operator - build source expression using two operands
@@ -311,7 +312,9 @@ std::string LoadStoreSourceExpression::getSourceExpression(
             ? sourceExpressionsMap[operand2]
             : getSourceExpression(operand2, sourceExpressionsMap, symbol);
     std::string opcode = binaryOp->getOpcodeName();
-    std::string expression;
+    // std::string expression;
+    llvm::SmallString<32> expression;
+    llvm::raw_svector_ostream OS(expression);
     if (opcode == "add") {
       if (llvm::ConstantInt *constantInt =
               llvm::dyn_cast<llvm::ConstantInt>(operand2)) {
@@ -321,21 +324,20 @@ std::string LoadStoreSourceExpression::getSourceExpression(
           llvm::SmallVector<char, 16> str;
           absValue.toString(str, 10, false);
           std::string absValueStr(str.begin(), str.end());
-          if (constantInt->isNegative())
-            expression = "(" + name1 + " - " + absValueStr + ")";
+          OS << "(" << name1 << " - " << absValueStr << ")";
         }
       }
     }
 
     if (expression.empty()) {
       // If no modification is needed, use the original expression generation
-      expression = "(" + name1 + " " + getExpressionFromOpcode(opcode) + " " +
-                   name2 + ")";
+      OS << "(" << name1 << " " << getExpressionFromOpcode(opcode) << " "
+         << name2 << ")";
     }
 
-    sourceExpressionsMap[operand] = expression;
+    sourceExpressionsMap[operand] = expression.str().str();
 
-    return expression;
+    return expression.str().str();
   } else if (llvm::LoadInst *loadInst =
                  llvm::dyn_cast<llvm::LoadInst>(operand)) {
     // Load instruction - return the source expression for its value operand
@@ -440,10 +442,8 @@ std::string LoadStoreSourceExpression::processStoreInst(
       expression = sourceExpressionsMap[operand];
     }
 
-    sourceExpressionsMap[I->getPointerOperand()] = expression;
     return expression;
   }
-
   if (localVar) {
     // Return the name of the local variable
     return localVar->getName().str();
@@ -518,7 +518,9 @@ LoadStoreSourceExpression::buildSourceLevelExpression(llvm::Instruction &I,
     // Check if the StoreInst has not been processed already
     if (loadStoreMap.count(storeInst) == 0) {
       // Process the StoreInst and generate the source expressions
-      processStoreInst(storeInst, sourceExpressionsMap, symbol);
+      std::string expression =
+          processStoreInst(storeInst, sourceExpressionsMap, symbol);
+      sourceExpressionsMap[storeInst->getPointerOperand()] = expression;
     }
   }
 
