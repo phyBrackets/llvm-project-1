@@ -25,8 +25,14 @@ public:
   std::string getExpressionFromOpcode(llvm::StringRef opcode);
 
   // Build the source-level expression for an LLVM instruction.
-  std::optional<std::string> buildSourceLevelExpression(llvm::Instruction &I,
+  void buildSourceLevelExpression(llvm::Instruction &I,
                                                         StringRef symbol);
+  
+    // This map stores the source-level expressions for LLVM values.
+  // The expressions are represented as strings and are associated with the
+  // corresponding values. It is used to cache and retrieve source expressions
+  // during the generation process.
+  llvm::DenseMap<llvm::Value *, std::string> sourceExpressionsMap;
 
 private:
   // This map associates StoreInst pointers with their corresponding LoadInst
@@ -34,11 +40,6 @@ private:
   // instructions for later processing.
   llvm::DenseMap<llvm::StoreInst *, llvm::LoadInst *> loadStoreMap;
 
-  // This map stores the source-level expressions for LLVM values.
-  // The expressions are represented as strings and are associated with the
-  // corresponding values. It is used to cache and retrieve source expressions
-  // during the generation process.
-  llvm::DenseMap<llvm::Value *, std::string> sourceExpressionsMap;
   const Function &F;
 
   // Remove the ampersand character from a string.
@@ -88,6 +89,7 @@ class LoadStoreAnalysis : public AnalysisInfoMixin<LoadStoreAnalysis> {
 public:
   using Result = LoadStoreSourceExpression;
   Result run(Function &F, FunctionAnalysisManager &);
+//  PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM);
 };
 
 class LoadStoreAnalysisPrinterPass
