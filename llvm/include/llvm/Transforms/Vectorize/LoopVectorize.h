@@ -58,6 +58,8 @@
 
 #include "llvm/IR/PassManager.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Analysis/LoadStoreAnalysis.h"
+
 #include <functional>
 
 namespace llvm {
@@ -181,6 +183,7 @@ public:
   LoopAccessInfoManager *LAIs;
   OptimizationRemarkEmitter *ORE;
   ProfileSummaryInfo *PSI;
+  LoadStoreSourceExpression *LSE;
 
   PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM);
   void printPipeline(raw_ostream &OS,
@@ -193,7 +196,7 @@ public:
                               DemandedBits &DB_, AssumptionCache &AC_,
                               LoopAccessInfoManager &LAIs_,
                               OptimizationRemarkEmitter &ORE_,
-                              ProfileSummaryInfo *PSI_);
+                              ProfileSummaryInfo *PSI_, LoadStoreSourceExpression &LSE_);
 
   bool processLoop(Loop *L);
 };
