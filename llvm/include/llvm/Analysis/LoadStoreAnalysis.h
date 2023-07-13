@@ -89,7 +89,6 @@ class LoadStoreAnalysis : public AnalysisInfoMixin<LoadStoreAnalysis> {
 public:
   using Result = LoadStoreSourceExpression;
   Result run(Function &F, FunctionAnalysisManager &);
-//  PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM);
 };
 
 class LoadStoreAnalysisPrinterPass

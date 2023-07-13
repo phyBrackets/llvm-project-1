@@ -162,3 +162,4 @@ add_llvm_component_library(LLVMAnalysis
   TargetParser
   )
   
+add_llvm_pass_plugin(LSAnalysis LoadStoreAnalysis.cpp)
