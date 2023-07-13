@@ -531,3 +531,84 @@ LoadStoreAnalysis::Result LoadStoreAnalysis::run(Function &F,
 
   return LoadStoreSourceExpression(F);
 }
+
+void LoadStoreSourceExpression::print(raw_ostream &OS) const {
+
+  for (const auto &entry : sourceExpressionsMap) {
+    llvm::Value *key = entry.first;
+    std::string value = entry.second;
+
+    // Print the key
+    OS << "Key: ";
+    if (llvm::Instruction *keyInst = llvm::dyn_cast<llvm::Instruction>(key)) {
+      keyInst->printAsOperand(dbgs(), /*PrintType=*/false);
+    } else {
+      OS << "<unknown>";
+    }
+    OS << " - Values: " << value;
+
+    OS << "\n";
+  }
+}
+
+PreservedAnalyses
+LoadStoreAnalysisPrinterPass::run(Function &F, FunctionAnalysisManager &AM) {
+  OS << "Load Store Expression " << F.getName() << "\n";
+  LoadStoreAnalysis::Result &PI = AM.getResult<LoadStoreAnalysis>(
+      F); // Retrieve the correct analysis result type
+  for (BasicBlock &BB : F) {
+    for (Instruction &I : BB) {
+      std::string operation = llvm::Instruction::getOpcodeName(I.getOpcode());
+      std::string symbol = PI.getExpressionFromOpcode(operation);
+
+      PI.buildSourceLevelExpression(I, symbol);
+    }
+  }
+
+  PI.print(OS);
+  return PreservedAnalyses::all();
+}
+
+llvm::PassPluginLibraryInfo getSourceExprPluginInfo() {
+  return {
+
+      LLVM_PLUGIN_API_VERSION, "LoadStore", LLVM_VERSION_STRING,
+      [](PassBuilder &PB) {
+        // Register LoadStoreAnalysisPrinterPass so that it can be used when
+        // specifying pass pipelines with `-passes=`.
+        PB.registerPipelineParsingCallback(
+            [&](StringRef Name, FunctionPassManager &FPM,
+                ArrayRef<PassBuilder::PipelineElement>) {
+              if (Name == "source-expr") {
+                FPM.addPass(LoadStoreAnalysisPrinterPass(llvm::outs()));
+                return true;
+              }
+              return false;
+            });
+
+        // REGISTRATION FOR "-O{1|2|3|s}"
+        // Register LoadStoreAnalysisPrinterPass as a step of an existing
+        // pipeline. The insertion point is specified by using the
+        // 'registerVectorizerStartEPCallback' callback. To be more precise,
+        // using this callback means that LoadStoreAnalysisPrinterPass will be
+        // called whenever the vectoriser is used (i.e. when using
+        // '-O{1|2|3|s}'.
+        PB.registerVectorizerStartEPCallback(
+            [](llvm::FunctionPassManager &PM, llvm::OptimizationLevel Level) {
+              PM.addPass(LoadStoreAnalysisPrinterPass(llvm::outs()));
+            });
+
+        // Register LoadStoreAnalysis as an analysis pass. This is required so
+        // that LoadStoreAnalysisPrinterPass (or any other pass) can request the
+        // results of LoadStoreAnalysis.
+        PB.registerAnalysisRegistrationCallback(
+            [](FunctionAnalysisManager &FAM) {
+              FAM.registerPass([&] { return LoadStoreAnalysis(); });
+            });
+      }};
+}
+
+extern "C" LLVM_ATTRIBUTE_WEAK ::llvm::PassPluginLibraryInfo
+llvmGetPassPluginInfo() {
+  return getSourceExprPluginInfo();
+}
