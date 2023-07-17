@@ -25,10 +25,9 @@ public:
   std::string getExpressionFromOpcode(llvm::StringRef opcode);
 
   // Build the source-level expression for an LLVM instruction.
-  void buildSourceLevelExpression(llvm::Instruction &I,
-                                                        StringRef symbol);
-  
-    // This map stores the source-level expressions for LLVM values.
+  void buildSourceLevelExpression(llvm::Instruction &I, StringRef symbol);
+
+  // This map stores the source-level expressions for LLVM values.
   // The expressions are represented as strings and are associated with the
   // corresponding values. It is used to cache and retrieve source expressions
   // during the generation process.
@@ -42,6 +41,10 @@ private:
 
   const Function &F;
 
+  // Process Debug Metadata associated with a stored value
+  void processDbgMetadata(llvm::Value *storedValue,
+                          llvm::DILocalVariable *&localVar);
+
   // Remove the ampersand character from a string.
   std::string removeAmpersand(llvm::StringRef str);
 
@@ -51,13 +54,11 @@ private:
 
   // It processes the basePointer to obtain its type information and returns the
   // result as an std::optional<std::string>.
-  std::optional<std::string> processBasePointer(llvm::Value *basePointer);
+  bool processBasePointer(llvm::Value *basePointer);
 
-  //  It returns an std::optional<std::string> that may contain a string
-  //  representing the processed type information.
-  std::optional<std::string> processDIType(llvm::DIType *diType,
-                                           llvm::Value *basePointer,
-                                           std::string memberName = "");
+  // Check if the given DIType represents a structure type.
+  bool isStructType(llvm::DIType *diType, llvm::Value *basePointer,
+                    std::string memberName = "");
 
   //  It is used to track whether a certain array type has been encountered or
   //  not.
