@@ -974,9 +974,7 @@ bool LoopVectorizationLegality::canVectorizeInstrs() {
           // Check the corresponding source expression for better remarks
           for (BasicBlock &BB : *F) {
             for (Instruction &I : BB) {
-              std::string operation =
-                  llvm::Instruction::getOpcodeName(I.getOpcode());
-              std::string symbol = LSE->getExpressionFromOpcode(operation);
+              std::string symbol = LSE->getExpressionFromOpcode(I.getOpcode());
 
               LSE->buildSourceLevelExpression(I, symbol);
             }
