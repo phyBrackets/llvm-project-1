@@ -10587,7 +10587,7 @@ LoopVectorizeResult LoopVectorizePass::runImpl(
     DominatorTree &DT_, BlockFrequencyInfo *BFI_, TargetLibraryInfo *TLI_,
     DemandedBits &DB_, AssumptionCache &AC_, LoopAccessInfoManager &LAIs_,
     OptimizationRemarkEmitter &ORE_, ProfileSummaryInfo *PSI_,
-    LoadStoreAnalysis::Result &LSE_) {
+    SourceExpressionAnalysis::Result &LSE_) {
   SE = &SE_;
   LI = &LI_;
   TTI = &TTI_;
@@ -10665,7 +10665,7 @@ PreservedAnalyses LoopVectorizePass::run(Function &F,
   auto &AC = AM.getResult<AssumptionAnalysis>(F);
   auto &DB = AM.getResult<DemandedBitsAnalysis>(F);
   auto &ORE = AM.getResult<OptimizationRemarkEmitterAnalysis>(F);
-  auto &LSE = AM.getResult<LoadStoreAnalysis>(F);
+  auto &LSE = AM.getResult<SourceExpressionAnalysis>(F);
 
   LoopAccessInfoManager &LAIs = AM.getResult<LoopAccessAnalysis>(F);
   auto &MAMProxy = AM.getResult<ModuleAnalysisManagerFunctionProxy>(F);

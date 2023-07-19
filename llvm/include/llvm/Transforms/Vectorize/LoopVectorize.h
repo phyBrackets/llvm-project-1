@@ -58,7 +58,7 @@
 
 #include "llvm/IR/PassManager.h"
 #include "llvm/Support/CommandLine.h"
-#include "llvm/Analysis/LoadStoreAnalysis.h"
+#include "llvm/Analysis/SourceExpressionAnalysis.h"
 
 #include <functional>
 
