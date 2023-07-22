@@ -14,6 +14,7 @@
 
 #include "llvm/Analysis/SourceExpressionAnalysis.h"
 
+#include "llvm/Analysis/LoopInfo.h"
 #include "llvm/BinaryFormat/Dwarf.h"
 #include "llvm/IR/DebugInfo.h"
 #include "llvm/IR/DebugInfoMetadata.h"
@@ -119,41 +120,43 @@ LoadStoreSourceExpression::processDbgMetadata(Value *storedValue) {
 }
 
 /**
- * Process the given DIType and determine if it represents a structure type.
+ * Process the given DIType.
  * This function recursively traverses the type hierarchy to handle basic types,
  * derived types, and composite types (such as structures and arrays). For basic
  * types, information about the member is stored in the memberInfo map. For
- * derived types, the isStructType function is called recursively with the base
- * type. For structures, each element is processed recursively using the
- * isStructType function. For arrays, the base type is processed recursively
- * with the same member name.
+ * derived types, the `processDIType` function is called recursively with the
+ * base type. For structures, each element is processed recursively using the
+ * `processDIType` function. For arrays, the base type (which is a structure) is
+ * processed recursively with the same member name.
  *
  * @param diType The DIType to process.
  * @param basePointer The base pointer value associated with the DIType.
  * @param memberName The name of the member, if applicable.
- * @return True if the DIType is a structure type, false otherwise.
  */
 
-bool LoadStoreSourceExpression::isStructType(DIType *diType, Value *basePointer,
-                                             std::string memberName) {
+void LoadStoreSourceExpression::processDIType(DIType *diType,
+                                              Value *basePointer,
+                                              std::string memberName) {
   // Check if the DIType is valid
   if (!diType) {
-    return false;
+    return;
   }
 
-  // Process basic type associated with struct
+  // Process basic type associated with the type
   if (auto *basicType = dyn_cast<DIBasicType>(diType)) {
     // Store information about the member
     memberInfo[basePointer->getName()].push_back(
         {basicType->getName().str(), memberName});
   }
-  // Process derived type associated with struct
+  // Process derived type associated with the type
   else if (auto *derivedType = dyn_cast<DIDerivedType>(diType)) {
     std::string derivedMemberName = derivedType->getName().str();
     auto *type = derivedType->getBaseType();
-    isStructType(type, basePointer, derivedMemberName);
+
+    // Recursively process the nested type
+    processDIType(type, basePointer, derivedMemberName);
   }
-  // Process composite types (structures and arrays)
+  // Process composite types (structures, arrays, etc.)
   else if (auto *compositeType = dyn_cast<DICompositeType>(diType)) {
     // Check if the composite type is a structure
     if (compositeType->getTag() == dwarf::DW_TAG_structure_type) {
@@ -163,20 +166,17 @@ bool LoadStoreSourceExpression::isStructType(DIType *diType, Value *basePointer,
         for (unsigned i = 0; i < nodeArray.size(); ++i) {
           Metadata *metadata = nodeArray[i];
           DIType *nestedDINode = dyn_cast<DIType>(metadata);
-          isStructType(nestedDINode, basePointer);
+          processDIType(nestedDINode, basePointer, memberName);
         }
       }
-      return true; // Inside a structure type
     }
     // Check if the composite type is an array
     else if (compositeType->getTag() == dwarf::DW_TAG_array_type) {
       auto *baseType = compositeType->getBaseType();
-      isStructType(baseType, basePointer, memberName);
+      // Recursively process the base type (which is a structure)
+      processDIType(baseType, basePointer, memberName);
     }
   }
-
-  // Return false to indicate not being inside a structure type
-  return false;
 }
 
 /**
@@ -189,6 +189,14 @@ bool LoadStoreSourceExpression::isStructType(DIType *diType, Value *basePointer,
 
 std::string LoadStoreSourceExpression::getSourceExpression(Value *operand,
                                                            StringRef symbol) {
+  // Check if the operand has debug metadata associated with it
+  if (!isa<ConstantInt>(operand)) {
+    DILocalVariable *localVar = processDbgMetadata(operand);
+    if (localVar) {
+      return localVar->getName().str();
+    }
+  }
+
   if (GetElementPtrInst *gepInst = dyn_cast<GetElementPtrInst>(operand)) {
     return getSourceExpressionForGetElementPtr(gepInst);
   } else if (BinaryOperator *binaryOp = dyn_cast<BinaryOperator>(operand)) {
@@ -204,6 +212,28 @@ std::string LoadStoreSourceExpression::getSourceExpression(Value *operand,
   // If no specific case matches, return the name of the operand or its
   // representation
   return operand->getNameOrAsOperand();
+}
+
+// Get the type tag from the given DIType
+// Returns:
+//   0: If the DIType is null or the type tag is unknown or unsupported
+//   DW_TAG_base_type, DW_TAG_pointer_type, DW_TAG_const_type, etc.: The type
+//   tag
+
+static uint16_t getTypeTag(DIType *diType) {
+  if (!diType)
+    return 0;
+
+  if (auto *basicType = dyn_cast<DIBasicType>(diType)) {
+    return basicType->getTag();
+  } else if (auto *derivedType = dyn_cast<DIDerivedType>(diType)) {
+    return derivedType->getTag();
+  } else if (auto *compositeType = dyn_cast<DICompositeType>(diType)) {
+    return compositeType->getTag();
+  }
+
+  // Return 0 for unknown or unsupported type tags
+  return 0;
 }
 
 /**
@@ -227,18 +257,9 @@ std::string LoadStoreSourceExpression::getSourceExpressionForGetElementPtr(
     offsetVal = offsetConstant->getSExtValue();
   }
 
-  // Check if the base pointer is an AllocaInst and if its allocated type is
-  // an ArrayType
-  if (AllocaInst *allocaInst = dyn_cast<AllocaInst>(basePointer)) {
-    Type *allocaType = allocaInst->getAllocatedType();
-    if (isa<ArrayType>(allocaType)) {
-      checkArrayType[basePointer->getNameOrAsOperand()] = true;
-    }
-  }
-  // Check if the base pointer is of PointerType
-  else if (isa<PointerType>(basePointer->getType())) {
-    checkArrayType[basePointer->getNameOrAsOperand()] = true;
-  }
+  DILocalVariable *localVar = processDbgMetadata(basePointer);
+  DIType *type = localVar ? localVar->getType() : nullptr;
+  processDIType(type, basePointer);
 
   std::string basePointerName =
       sourceExpressionsMap.count(basePointer)
@@ -254,41 +275,32 @@ std::string LoadStoreSourceExpression::getSourceExpressionForGetElementPtr(
 
   SmallString<32> expression;
   raw_svector_ostream OS(expression);
-  if (basePointer->getType()) {
 
-    // Check for if the basePointer has further metadata nodes and reterive the
-    // type in case
-    DILocalVariable *localVar = processDbgMetadata(basePointer);
-    DIType *type = localVar ? localVar->getType() : nullptr;
-
-    // Process the base pointer to determine it is a structure type
-    if (isStructType(type, basePointer)) {
-      // If the base pointer type is a structure, construct the source
-      // expression using member info
-      OS << basePointerName << "."
-         << memberInfo[basePointer->getName()].at(offsetVal).second;
-    } else {
-      if (basePointerName.find('[') == std::string::npos &&
-          checkArrayType[basePointer->getNameOrAsOperand()]) {
-        // Construct the source expression for the address computation with
-        // square brackets
-        OS << "&" << basePointerName << "[" << offsetName << "]";
-      } else if (basePointerName.find('[') != std::string::npos &&
-                 basePointerName.find('&') != std::string::npos &&
-                 checkArrayType[basePointer->getNameOrAsOperand()]) {
-        size_t found = basePointerName.find('&');
-        if (found != std::string::npos) {
-          basePointerName.erase(found, 1);
-        }
-        // If basePointerName already contains square brackets, combine it
-        // with offsetName directly
-        OS << basePointerName << "[" << offsetName << "]";
-      } else if (basePointerName.find('[') != std::string::npos &&
-                 !checkArrayType[basePointer->getNameOrAsOperand()]) {
-        // If basePointerName already contains square brackets, combine it
-        // with offsetName directly
-        OS << basePointerName << " + " << offsetName;
+  uint16_t tag = getTypeTag(type);
+  if (tag == dwarf::DW_TAG_structure_type) {
+    // It's a struct type
+    OS << basePointerName << "."
+       << memberInfo[basePointer->getName()].at(offsetVal).second;
+  } else if (tag == dwarf::DW_TAG_array_type ||
+             isa<PointerType>(basePointer->getType())) {
+    if (basePointerName.find('[') == std::string::npos) {
+      // Construct the source expression for the address computation with
+      // square brackets
+      OS << "&" << basePointerName << "[" << offsetName << "]";
+    } else if (basePointerName.find('[') != std::string::npos &&
+               basePointerName.find('&') != std::string::npos) {
+      size_t found = basePointerName.find('&');
+      if (found != std::string::npos) {
+        basePointerName.erase(found, 1);
       }
+      // If basePointerName already contains square brackets, combine it
+      // with offsetName directly
+      OS << basePointerName << "[" << offsetName << "]";
+    } else if (basePointerName.find('[') != std::string::npos &&
+               !checkArrayType[basePointer->getNameOrAsOperand()]) {
+      // If basePointerName already contains square brackets, combine it
+      // with offsetName directly
+      OS << basePointerName << " + " << offsetName;
     }
   }
 
@@ -540,14 +552,12 @@ void LoadStoreSourceExpression::print(raw_ostream &OS) const {
     Value *key = entry.first;
     std::string value = entry.second;
 
-    // Print the key
-    OS << "Key: ";
     if (Instruction *keyInst = dyn_cast<Instruction>(key)) {
       keyInst->printAsOperand(dbgs(), /*PrintType=*/false);
     } else {
       OS << "<unknown>";
     }
-    OS << " - Values: " << value;
+    OS << " = " << value;
 
     OS << "\n";
   }
@@ -559,57 +569,14 @@ SourceExpressionAnalysisPrinterPass::run(Function &F,
   OS << "Load Store Expression " << F.getName() << "\n";
   SourceExpressionAnalysis::Result &PI = AM.getResult<SourceExpressionAnalysis>(
       F); // Retrieve the correct analysis result type
+
   for (BasicBlock &BB : F) {
     for (Instruction &I : BB) {
       std::string symbol = PI.getExpressionFromOpcode(I.getOpcode());
-
       PI.buildSourceLevelExpression(I, symbol);
     }
   }
 
   PI.print(OS);
   return PreservedAnalyses::all();
-}
-
-PassPluginLibraryInfo getSourceExprPluginInfo() {
-  return {
-
-      LLVM_PLUGIN_API_VERSION, "LoadStore", LLVM_VERSION_STRING,
-      [](PassBuilder &PB) {
-        // Register SourceExpressionAnalysisPrinterPass so that it can be used
-        // when specifying pass pipelines with `-passes=`.
-        PB.registerPipelineParsingCallback(
-            [&](StringRef Name, FunctionPassManager &FPM,
-                ArrayRef<PassBuilder::PipelineElement>) {
-              if (Name == "source-expr") {
-                FPM.addPass(SourceExpressionAnalysisPrinterPass(outs()));
-                return true;
-              }
-              return false;
-            });
-
-        // REGISTRATION FOR "-O{1|2|3|s}"
-        // Register SourceExpressionAnalysisPrinterPass as a step of an existing
-        // pipeline. The insertion point is specified by using the
-        // 'registerVectorizerStartEPCallback' callback. To be more precise,
-        // using this callback means that SourceExpressionAnalysisPrinterPass
-        // will be called whenever the vectoriser is used (i.e. when using
-        // '-O{1|2|3|s}'.
-        PB.registerVectorizerStartEPCallback(
-            [](FunctionPassManager &PM, OptimizationLevel Level) {
-              PM.addPass(SourceExpressionAnalysisPrinterPass(outs()));
-            });
-
-        // Register SourceExpressionAnalysis as an analysis pass. This is
-        // required so that SourceExpressionAnalysisPrinterPass (or any other
-        // pass) can request the results of SourceExpressionAnalysis.
-        PB.registerAnalysisRegistrationCallback(
-            [](FunctionAnalysisManager &FAM) {
-              FAM.registerPass([&] { return SourceExpressionAnalysis(); });
-            });
-      }};
-}
-
-extern "C" LLVM_ATTRIBUTE_WEAK ::PassPluginLibraryInfo llvmGetPassPluginInfo() {
-  return getSourceExprPluginInfo();
 }
