@@ -979,7 +979,8 @@ bool LoopVectorizationLegality::canVectorizeInstrs() {
               LSE->buildSourceLevelExpression(I, symbol);
             }
           }
-          dbgs() << LSE->sourceExpressionsMap[ST->getPointerOperand()] << "\n"; // Just figuring out right now
+          dbgs() << LSE->sourceExpressionsMap[ST->getPointerOperand()]
+                 << "\n"; // Just figuring out right now
 
           reportVectorizationFailure("Store instruction cannot be vectorized",
                                      "store instruction cannot be vectorized",

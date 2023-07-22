@@ -868,7 +868,6 @@ public:
   /// as described above.
   virtual std::pair<BasicBlock *, Value *>
   createEpilogueVectorizedLoopSkeleton(const SCEV2ValueTy &ExpandedSCEVs) = 0;
-
   /// Holds and updates state information required to vectorize the main loop
   /// and its epilogue in two separate passes. This setup helps us avoid
   /// regenerating and recomputing runtime safety checks. It also helps us to

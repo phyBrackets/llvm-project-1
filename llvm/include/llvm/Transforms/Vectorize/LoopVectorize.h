@@ -56,9 +56,9 @@
 #ifndef LLVM_TRANSFORMS_VECTORIZE_LOOPVECTORIZE_H
 #define LLVM_TRANSFORMS_VECTORIZE_LOOPVECTORIZE_H
 
+#include "llvm/Analysis/SourceExpressionAnalysis.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/Support/CommandLine.h"
-#include "llvm/Analysis/SourceExpressionAnalysis.h"
 
 #include <functional>
 
@@ -196,7 +196,8 @@ public:
                               DemandedBits &DB_, AssumptionCache &AC_,
                               LoopAccessInfoManager &LAIs_,
                               OptimizationRemarkEmitter &ORE_,
-                              ProfileSummaryInfo *PSI_, LoadStoreSourceExpression &LSE_);
+                              ProfileSummaryInfo *PSI_,
+                              LoadStoreSourceExpression &LSE_);
 
   bool processLoop(Loop *L);
 };

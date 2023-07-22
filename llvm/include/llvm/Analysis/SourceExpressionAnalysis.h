@@ -8,6 +8,7 @@
 #include "llvm/IR/Function.h"
 #include "llvm/Pass.h"
 #include "llvm/Passes/PassBuilder.h"
+#include <map>
 #include <optional>
 using namespace llvm;
 
@@ -31,7 +32,10 @@ public:
   // The expressions are represented as strings and are associated with the
   // corresponding values. It is used to cache and retrieve source expressions
   // during the generation process.
-  DenseMap<Value *, std::string> sourceExpressionsMap;
+  std::map<Value *, std::string> sourceExpressionsMap;
+
+  // Process Debug Metadata associated with a stored value
+  DILocalVariable *processDbgMetadata(Value *storedValue);
 
 private:
   // This map associates StoreInst pointers with their corresponding LoadInst
@@ -40,9 +44,6 @@ private:
   DenseMap<StoreInst *, LoadInst *> loadStoreMap;
 
   const Function &F;
-
-  // Process Debug Metadata associated with a stored value
-  DILocalVariable *processDbgMetadata(Value *storedValue);
 
   // Remove the ampersand character from a string.
   std::string removeAmpersand(StringRef str);
@@ -58,9 +59,10 @@ private:
   DenseMap<StringRef, std::vector<std::pair<std::string, std::string>>>
       memberInfo;
 
-  // Check if the given DIType represents a structure type.
-  bool isStructType(DIType *diType, Value *basePointer,
-                    std::string memberName = "");
+  // Process the DIType and store important information such as structure member
+  // names
+  void processDIType(DIType *diType, Value *basePointer,
+                     std::string memberName = "");
 
   //  It is used to track whether a certain array type has been encountered or
   //  not.
