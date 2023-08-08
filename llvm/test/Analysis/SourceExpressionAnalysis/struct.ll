@@ -16,7 +16,7 @@ define dso_local void @_Z4funcv() #0 !dbg !19 {
 entry:
 ; CHECK: %obj = obj
   %obj = alloca %struct.foo, align 4
-; CHECK: %s = obj.arr[3]
+; CHECK: %s = s
   %s = alloca i32, align 4
   call void @llvm.dbg.declare(metadata ptr %obj, metadata !23, metadata !DIExpression()), !dbg !24
   call void @_ZN3fooC2Ev(ptr noundef nonnull align 4 dereferenceable(24) %obj) #4, !dbg !24

@@ -30,39 +30,51 @@ using namespace llvm;
 #define DEBUG_TYPE "source_expr"
 
 // This function translates LLVM opcodes to source-level expressions using DWARF
-// operation encodings. It returns the source-level expression corresponding to
-// the input opcode or "unknown" if the opcode is unsupported.
+// operation encodings. It takes an LLVM opcode as input and returns the
+// corresponding symbol as a string. If the opcode is supported,
+// the function returns the appropriate symbol, such as "+",
+// "-", "*", "/", "<<", ">>", "&", "|", "^", or "%". If the opcode is not
+// supported, the function returns "unknown".
 
 std::string
 LoadStoreSourceExpression::getExpressionFromOpcode(unsigned opcode) {
   // Map LLVM opcodes to source-level expressions
-
   switch (opcode) {
   case Instruction::Add:
+  case Instruction::FAdd:
     return "+";
-    break;
   case Instruction::Sub:
+  case Instruction::FSub:
     return "-";
-    break;
   case Instruction::Mul:
+  case Instruction::FMul:
     return "*";
-    break;
   case Instruction::UDiv:
+  case Instruction::SDiv:
+  case Instruction::FDiv:
     return "/";
-    break;
+  case Instruction::URem:
+  case Instruction::SRem:
+  case Instruction::FRem:
+    return "%";
   case Instruction::Shl:
     return "<<";
-    break;
+  case Instruction::LShr:
+  case Instruction::AShr:
+    return ">>";
+  case Instruction::And:
+    return "&";
+  case Instruction::Or:
+    return "|";
+  case Instruction::Xor:
+    return "^";
   default:
-    // Handle unknown opcodes or unsupported operations
     return "unknown";
-    break;
   }
 }
 
 // Function to remove the '&' character from a string
-
-std::string LoadStoreSourceExpression::removeAmpersand(StringRef AddrStr) {
+static const std::string removeAmpersand(StringRef AddrStr) {
   std::string result = AddrStr.str();
 
   size_t found = result.find('&');
@@ -187,8 +199,11 @@ void LoadStoreSourceExpression::processDIType(DIType *diType,
  * @return The source-level expression for the value.
  */
 
-std::string LoadStoreSourceExpression::getSourceExpression(Value *operand,
-                                                           StringRef symbol) {
+std::string LoadStoreSourceExpression::getSourceExpression(Value *operand) {
+
+  if (sourceExpressionsMap.count(operand))
+    return sourceExpressionsMap[operand];
+
   // Check if the operand has debug metadata associated with it
   if (!isa<ConstantInt>(operand)) {
     DILocalVariable *localVar = processDbgMetadata(operand);
@@ -247,11 +262,10 @@ std::string LoadStoreSourceExpression::getSourceExpressionForGetElementPtr(
     GetElementPtrInst *gepInst) {
   // GetElementPtr instruction - construct source expression for address
   // computation
-
   Value *basePointer = gepInst->getOperand(0);
   Value *offset = gepInst->getOperand(gepInst->getNumIndices());
 
-  int offsetVal = 0;
+  int offsetVal = INT_MIN;
   if (ConstantInt *offsetConstant = dyn_cast<ConstantInt>(offset)) {
     // Retrieve the value of the constant integer as an integer
     offsetVal = offsetConstant->getSExtValue();
@@ -261,17 +275,8 @@ std::string LoadStoreSourceExpression::getSourceExpressionForGetElementPtr(
   DIType *type = localVar ? localVar->getType() : nullptr;
   processDIType(type, basePointer);
 
-  std::string basePointerName =
-      sourceExpressionsMap.count(basePointer)
-          ? sourceExpressionsMap[basePointer]
-          : getSourceExpression(basePointer, getExpressionFromOpcode(
-
-                                                 gepInst->getOpcode()));
-  std::string offsetName =
-      sourceExpressionsMap.count(offset)
-          ? sourceExpressionsMap[offset]
-          : getSourceExpression(offset,
-                                getExpressionFromOpcode(gepInst->getOpcode()));
+  std::string basePointerName = getSourceExpression(basePointer);
+  std::string offsetName = getSourceExpression(offset);
 
   SmallString<32> expression;
   raw_svector_ostream OS(expression);
@@ -287,23 +292,17 @@ std::string LoadStoreSourceExpression::getSourceExpressionForGetElementPtr(
       // Construct the source expression for the address computation with
       // square brackets
       OS << "&" << basePointerName << "[" << offsetName << "]";
-    } else if (basePointerName.find('[') != std::string::npos &&
-               basePointerName.find('&') != std::string::npos) {
-      size_t found = basePointerName.find('&');
-      if (found != std::string::npos) {
-        basePointerName.erase(found, 1);
-      }
+    } else if (basePointerName.find('[') != std::string::npos) {
       // If basePointerName already contains square brackets, combine it
       // with offsetName directly
       OS << basePointerName << "[" << offsetName << "]";
     } else if (basePointerName.find('[') != std::string::npos &&
-               !checkArrayType[basePointer->getNameOrAsOperand()]) {
+               offsetVal != INT_MIN) {
       // If basePointerName already contains square brackets, combine it
       // with offsetName directly
-      OS << basePointerName << " + " << offsetName;
+      OS << basePointerName << " + " << offsetVal;
     }
   }
-
   sourceExpressionsMap[gepInst] = expression.str().str();
 
   // Return the constructed source expression
@@ -321,38 +320,18 @@ std::string LoadStoreSourceExpression::getSourceExpressionForGetElementPtr(
 std::string LoadStoreSourceExpression::getSourceExpressionForBinaryOperator(
     BinaryOperator *binaryOp, Value *operand) {
   // Binary operator - build source expression using two operands
-
   Value *operand1 = binaryOp->getOperand(0);
   Value *operand2 = binaryOp->getOperand(1);
 
-  std::string name1 = sourceExpressionsMap.count(operand1)
-                          ? sourceExpressionsMap[operand1]
-                          : getSourceExpression(operand1);
-  std::string name2 = sourceExpressionsMap.count(operand2)
-                          ? sourceExpressionsMap[operand2]
-                          : getSourceExpression(operand2);
+  std::string name1 = getSourceExpression(operand1);
+  std::string name2 = getSourceExpression(operand2);
   std::string opcode = binaryOp->getOpcodeName();
 
   SmallString<32> expression;
   raw_svector_ostream OS(expression);
-  if (opcode == "+") {
-    if (ConstantInt *constantInt = dyn_cast<ConstantInt>(operand2)) {
-      if (constantInt->isNegative()) {
-        // Modify the expression for addition with a negative value
-        APInt absValue = constantInt->getValue().abs();
-        SmallVector<char, 16> str;
-        absValue.toString(str, 10, false);
-        std::string absValueStr(str.begin(), str.end());
-        OS << "(" << name1 << " - " << absValueStr << ")";
-      }
-    }
-  }
 
-  if (expression.empty()) {
-    // If no modification is needed, use the original expression generation
-    OS << "(" << name1 << " " << getExpressionFromOpcode(binaryOp->getOpcode())
-       << " " << name2 << ")";
-  }
+  OS << "(" << name1 << " " << getExpressionFromOpcode(binaryOp->getOpcode())
+     << " " << name2 << ")";
 
   sourceExpressionsMap[operand] = expression.str().str();
   // Return the constructed source expression
@@ -373,9 +352,7 @@ LoadStoreSourceExpression::getSourceExpressionForLoadInst(LoadInst *loadInst) {
   Value *operandVal = loadInst->getPointerOperand();
 
   // Check if a source expression exists for the value operand
-  std::string operandName = sourceExpressionsMap.count(operandVal)
-                                ? sourceExpressionsMap[operandVal]
-                                : getSourceExpression(operandVal);
+  std::string operandName = getSourceExpression(operandVal);
 
   sourceExpressionsMap[operandVal] = operandName;
 
@@ -397,106 +374,84 @@ std::string LoadStoreSourceExpression::getSourceExpressionForStoreInst(
   Value *operandVal = storeInst->getValueOperand();
 
   // Check if a source expression exists for the value operand
-  std::string operandName = sourceExpressionsMap.count(operandVal)
-                                ? sourceExpressionsMap[operandVal]
-                                : getSourceExpression(operandVal);
+  std::string operandName = getSourceExpression(operandVal);
 
   sourceExpressionsMap[storeInst->getPointerOperand()] = operandName;
   // Return the source expression for the value operand
   return operandName;
 }
 
-/**
+// Helper function to get the type name as a string
+static std::string getTypeNameAsString(Type *type) {
+  std::string typeName;
+  raw_string_ostream typeNameStream(typeName);
+  type->print(typeNameStream);
+  return typeNameStream.str();
+}
+
+/*
  * Get the source-level expression for a sign extension instruction.
  *
  * @param sextInst The sign extension instruction.
  * @return The source-level expression for the operand.
  */
-
 std::string
 LoadStoreSourceExpression::getSourceExpressionForSExtInst(SExtInst *sextInst) {
   // Signed Extension instruction - return the source expression for its operand
 
   Value *operandVal = sextInst->getOperand(0);
+  std::string operandName = getSourceExpression(operandVal);
 
-  // Check if a source expression exists for the operand
-  std::string operandName = sourceExpressionsMap.count(operandVal)
-                                ? sourceExpressionsMap[operandVal]
-                                : getSourceExpression(operandVal);
+  // Get the target type name for the signed extension
+  std::string targetType = getTypeNameAsString(sextInst->getType());
 
-  sourceExpressionsMap[operandVal] = operandName;
+  // Construct the source expression with the casting operation
+  std::string sourceExpression = "(" + targetType + ")" + operandName;
 
-  // Return the source expression for the operand
-  return operandName;
+  // Update the source expression map
+  sourceExpressionsMap[operandVal] = sourceExpression;
+
+  // Return the source expression
+  return sourceExpression;
 }
 
 // Process the StoreInst and generate the source expression for the stored
-// value.
-std::string LoadStoreSourceExpression::processStoreInst(StoreInst *I,
-                                                        StringRef symbol,
-                                                        bool loadFlag) {
-  Value *storedValue = I->getPointerOperand();
+// value. This function takes a StoreInst pointer and processes the associated
+// metadata to retrieve the variable name. It then constructs the source
+// expressions for both the pointer operand and the value operand. If the
+// operands are instructions, it calls the appropriate function to get their
+// source expressions. Otherwise, it constructs the source expressions directly
+// for non-instruction operands. The resulting source expressions are stored in
+// the sourceExpressionsMap.
+void LoadStoreSourceExpression::processStoreInst(StoreInst *I) {
+  Value *pointerOperand = I->getPointerOperand();
+  Value *valueOperand = I->getValueOperand();
 
-  // Process associated metadata with the stored value to get the information
-  // about variable name
-  DILocalVariable *localVar = processDbgMetadata(storedValue);
+  std::string pointerExpression, valueExpression;
 
-  Value *operand = nullptr;
-  if (isa<Instruction>(I->getValueOperand())) {
-    // Check if the value operand is an instruction
-    operand = I->getValueOperand();
-  } else if (isa<Instruction>(I->getPointerOperand())) {
-    // Check if the pointer operand is an instruction
-    operand = I->getPointerOperand();
+  if (isa<Instruction>(pointerOperand)) {
+    pointerExpression = getSourceExpression(pointerOperand);
+  } else {
+    // The pointer operand is not an instruction, process it as usual
+    pointerExpression = getSourceExpression(pointerOperand);
   }
 
-  if (operand) {
-    // Generate the source expression for the operand
-
-    std::string expression;
-    if (!sourceExpressionsMap.count(operand) ||
-        isa<GetElementPtrInst>(operand)) {
-      expression = getSourceExpression(operand, symbol);
-
-      if (isa<GetElementPtrInst>(operand)) {
-        sourceExpressionsMap[I->getPointerOperand()] = expression;
-      }
-    } else {
-      expression = sourceExpressionsMap[operand];
-    }
-
-    return expression;
-  }
-  if (localVar) {
-    // Return the name of the local variable
-    return localVar->getName().str();
+  if (isa<Instruction>(valueOperand)) {
+    valueExpression = getSourceExpression(valueOperand);
+  } else {
+    // The value operand is not an instruction, process it as usual
+    valueExpression = getSourceExpression(valueOperand);
   }
 
-  return {};
+  // Store the source expressions for both operands in the sourceExpressionsMap
+  sourceExpressionsMap[pointerOperand] = pointerExpression;
+  sourceExpressionsMap[valueOperand] = valueExpression;
 }
 
 // Process the LoadInst and generate the source expressions for the loaded value
 // and its corresponding store instruction (if applicable).
-void LoadStoreSourceExpression::processLoadInst(LoadInst *I,
-
-                                                StringRef symbol) {
+void LoadStoreSourceExpression::processLoadInst(LoadInst *I) {
   SmallVector<std::string> sourceExpressions;
-
-  // Search for the corresponding StoreInst for the LoadInst and process it
-  for (User *U : I->getPointerOperand()->users()) {
-    if (StoreInst *storeInst = dyn_cast<StoreInst>(U)) {
-      // Map the StoreInst to the current LoadInst in the loadStoreMap
-      loadStoreMap[storeInst] = I;
-
-      // Process the StoreInst and generate the source expression
-      std::string expression = processStoreInst(storeInst, symbol, true);
-
-      // Map the LoadInst to its source expression in the sourceExpressionsMap
-      sourceExpressionsMap[I] = removeAmpersand(expression);
-
-      break; // Assuming there is only one store instruction for the load
-    }
-  }
 
   // Check if the pointer operand of the LoadInst is an instruction
   if (isa<Instruction>(I->getPointerOperand())) {
@@ -506,7 +461,7 @@ void LoadStoreSourceExpression::processLoadInst(LoadInst *I,
     // Get the source expression for the pointer operand
     std::string expression;
     if (!sourceExpressionsMap.count(val)) {
-      expression = getSourceExpression(val, symbol);
+      expression = getSourceExpression(val);
     } else {
       expression = sourceExpressionsMap[val];
     }
@@ -517,24 +472,18 @@ void LoadStoreSourceExpression::processLoadInst(LoadInst *I,
 }
 
 // Build the source level expression for the given LLVM instruction
-void LoadStoreSourceExpression::buildSourceLevelExpression(Instruction &I,
-                                                           StringRef symbol) {
+void LoadStoreSourceExpression::buildSourceLevelExpression(Instruction &I) {
   SmallVector<std::string> sourceExpressions;
 
   // Check if the instruction is a LoadInst
   if (auto *loadInst = dyn_cast<LoadInst>(&I)) {
     // Process the LoadInst and generate the source expressions
-    processLoadInst(loadInst, symbol);
+    processLoadInst(loadInst);
   }
   // If it is a StoreInst
   else if (auto *storeInst = dyn_cast<StoreInst>(&I)) {
-
-    // Check if the StoreInst has not been processed already
-    if (loadStoreMap.count(storeInst) == 0) {
-      // Process the StoreInst and generate the source expressions
-      std::string expression = processStoreInst(storeInst, symbol);
-      sourceExpressionsMap[storeInst->getPointerOperand()] = expression;
-    }
+    // Process the StoreInst and generate the source expressions
+    processStoreInst(storeInst);
   }
 }
 
@@ -572,8 +521,7 @@ SourceExpressionAnalysisPrinterPass::run(Function &F,
 
   for (BasicBlock &BB : F) {
     for (Instruction &I : BB) {
-      std::string symbol = PI.getExpressionFromOpcode(I.getOpcode());
-      PI.buildSourceLevelExpression(I, symbol);
+      PI.buildSourceLevelExpression(I);
     }
   }
 

@@ -15,7 +15,6 @@ for.body:                                         ; preds = %entry, %for.body
 ; CHECK: %l1.07 = l1
   %l1.07 = phi i64 [ 0, %entry ], [ %inc, %for.body ]
   call void @llvm.dbg.value(metadata i64 %l1.07, metadata !16, metadata !DIExpression()), !dbg !17
-  ; CHECK: %add = (l1 - 1)
   %add = sub nsw i64 %l1.07, 1, !dbg !20
 ; CHECK: %arrayidx = &arr[(l1 - 1)]
   %arrayidx = getelementptr inbounds i64, ptr %arr, i64 %add, !dbg !22
@@ -23,7 +22,7 @@ for.body:                                         ; preds = %entry, %for.body
   %0 = load i64, ptr %arrayidx, align 8, !dbg !22, !tbaa !23
 ; CHECK: %add1 = (arr[(l1 - 1)] + 10)
   %add1 = add nsw i64 %0, 10, !dbg !27
-; CHECK: %arrayidx2 = (arr[(l1 - 1)] + 10)
+; CHECK: %arrayidx2 = &arr[l1]
   %arrayidx2 = getelementptr inbounds i64, ptr %arr, i64 %l1.07, !dbg !28
   store i64 %add1, ptr %arrayidx2, align 8, !dbg !29, !tbaa !23
   %inc = add nuw nsw i64 %l1.07, 1, !dbg !30

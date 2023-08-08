@@ -963,13 +963,10 @@ bool LoopVectorizationLegality::canVectorizeInstrs() {
           // Check the corresponding source expression for better remarks
           for (BasicBlock &BB : *F) {
             for (Instruction &I : BB) {
-              std::string symbol = LSE->getExpressionFromOpcode(I.getOpcode());
-
-              LSE->buildSourceLevelExpression(I, symbol);
+              LSE->buildSourceLevelExpression(I);
             }
           }
-          dbgs() << LSE->sourceExpressionsMap[ST->getPointerOperand()]
-                 << "\n"; // Just figuring out right now
+          dbgs() << LSE->getSourceExpressionForValue(ST->getPointerOperand());
 
           reportVectorizationFailure("Store instruction cannot be vectorized",
                                      "store instruction cannot be vectorized",
