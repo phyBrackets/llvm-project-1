@@ -24,10 +24,10 @@ public:
   void print(raw_ostream &OS) const;
 
   // Query the SourceExpressionMap Using a Value
-  std::string getSourceExpressionForValue(Value *key) const {
-    auto it = SourceExpressionsMap.find(key);
-    if (it != SourceExpressionsMap.end()) {
-      return it->second;
+  std::string getSourceExpressionForValue(Value *Key) const {
+    auto It = SourceExpressionsMap.find(Key);
+    if (It != SourceExpressionsMap.end()) {
+      return It->second;
     }
 
     return "Complex Expression or load and store get optimized out";
