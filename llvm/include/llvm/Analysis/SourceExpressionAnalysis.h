@@ -23,12 +23,10 @@ public:
   // Print out the values currently in the cache.
   void print(raw_ostream &OS) const;
 
-  // Build the source-level expression for an LLVM instruction.
-  void buildSourceLevelExpression(Instruction &I);
-
+  // Query the SourceExpressionMap Using a Value
   std::string getSourceExpressionForValue(Value *key) const {
-    auto it = sourceExpressionsMap.find(key);
-    if (it != sourceExpressionsMap.end()) {
+    auto it = SourceExpressionsMap.find(key);
+    if (it != SourceExpressionsMap.end()) {
       return it->second;
     }
 
@@ -36,17 +34,23 @@ public:
   }
 
   // Get the expression string corresponding to an opcode.
-  std::string getExpressionFromOpcode(unsigned opcode);
+  std::string getExpressionFromOpcode(unsigned Opcode);
+
+  // Process a StoreInst instruction and return its source-level expression.
+  void processStoreInst(StoreInst *I);
+
+  // Process a LoadInst instruction and update the sourceExpressionsMap.
+  void processLoadInst(LoadInst *I);
 
 private:
   // This map stores the source-level expressions for LLVM values.
   // The expressions are represented as strings and are associated with the
   // corresponding values. It is used to cache and retrieve source expressions
   // during the generation process.
-  std::map<Value *, std::string> sourceExpressionsMap;
+  std::map<Value *, std::string> SourceExpressionsMap;
 
   // Process Debug Metadata associated with a stored value
-  DILocalVariable *processDbgMetadata(Value *storedValue);
+  DILocalVariable *processDbgMetadata(Value *StoredValue);
 
   const Function &F;
 
@@ -58,37 +62,32 @@ private:
   // member.
 
   DenseMap<StringRef, std::vector<std::pair<std::string, std::string>>>
-      memberInfo;
+      MemberInfo;
 
   // Process the DIType and store important information such as structure member
   // names
-  void processDIType(DIType *diType, Value *basePointer,
-                     std::string memberName = "");
+  void processDIType(DIType *TypeToBeProcessed, Value *BasePointer,
+                     std::string MemberName = "");
 
   // Get the source-level expression for an LLVM value.
-  std::string getSourceExpression(Value *operand);
+  std::string getSourceExpression(Value *Operand);
 
   // Get the source-level expression for a GetElementPtr instruction.
-  std::string getSourceExpressionForGetElementPtr(GetElementPtrInst *gepInst);
+  std::string
+  getSourceExpressionForGetElementPtr(GetElementPtrInst *GepInstruction);
 
   // Get the source-level expression for a BinaryOperator.
-  std::string getSourceExpressionForBinaryOperator(BinaryOperator *binaryOp,
-                                                   Value *operand);
+  std::string getSourceExpressionForBinaryOperator(BinaryOperator *BinaryOp,
+                                                   Value *Operand);
 
   // Get the source-level expression for a LoadInst.
-  std::string getSourceExpressionForLoadInst(LoadInst *loadInst);
+  std::string getSourceExpressionForLoadInst(LoadInst *LoadInstruction);
 
   // Get the source-level expression for a StoreInst.
-  std::string getSourceExpressionForStoreInst(StoreInst *storeInst);
+  std::string getSourceExpressionForStoreInst(StoreInst *StoreInstruction);
 
   // Get the source-level expression for a SExtInst.
-  std::string getSourceExpressionForSExtInst(SExtInst *sextInst);
-
-  // Process a StoreInst instruction and return its source-level expression.
-  void processStoreInst(StoreInst *I);
-
-  // Process a LoadInst instruction and update the sourceExpressionsMap.
-  void processLoadInst(LoadInst *I);
+  std::string getSourceExpressionForSExtInst(SExtInst *SextInstruction);
 };
 
 class SourceExpressionAnalysis

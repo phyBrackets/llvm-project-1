@@ -963,7 +963,11 @@ bool LoopVectorizationLegality::canVectorizeInstrs() {
           // Check the corresponding source expression for better remarks
           for (BasicBlock &BB : *F) {
             for (Instruction &I : BB) {
-              LSE->buildSourceLevelExpression(I);
+              if (auto *loadInst = dyn_cast<LoadInst>(&I)) {
+                   LSE->processLoadInst(loadInst);
+              } else if (auto *storeInst = dyn_cast<StoreInst>(&I)) {
+                  LSE->processStoreInst(storeInst);
+              }
             }
           }
           dbgs() << LSE->getSourceExpressionForValue(ST->getPointerOperand());
