@@ -958,20 +958,6 @@ bool LoopVectorizationLegality::canVectorizeInstrs() {
       if (auto *ST = dyn_cast<StoreInst>(&I)) {
         Type *T = ST->getValueOperand()->getType();
         if (!VectorType::isValidElementType(T)) {
-            llvm::Function *F = ST->getFunction();
-
-          // Check the corresponding source expression for better remarks
-          for (BasicBlock &BB : *F) {
-            for (Instruction &I : BB) {
-              if (auto *loadInst = dyn_cast<LoadInst>(&I)) {
-                   LSE->processLoadInst(loadInst);
-              } else if (auto *storeInst = dyn_cast<StoreInst>(&I)) {
-                  LSE->processStoreInst(storeInst);
-              }
-            }
-          }
-          dbgs() << LSE->getSourceExpressionForValue(ST->getPointerOperand());
-
           reportVectorizationFailure("Store instruction cannot be vectorized",
                                      "store instruction cannot be vectorized",
                                      "CantVectorizeStore", ORE, TheLoop, ST);

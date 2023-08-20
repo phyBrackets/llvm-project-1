@@ -23,7 +23,7 @@ public:
   // Print out the values currently in the cache.
   void print(raw_ostream &OS) const;
 
-  // Query the SourceExpressionMap Using a Value
+  // Query the SourceExpressionMap For a Value
   std::string getSourceExpressionForValue(Value *Key) const {
     auto It = SourceExpressionsMap.find(Key);
     if (It != SourceExpressionsMap.end()) {
@@ -64,11 +64,6 @@ private:
   DenseMap<StringRef, std::vector<std::pair<std::string, std::string>>>
       MemberInfo;
 
-  // Process the DIType and store important information such as structure member
-  // names
-  void processDIType(DIType *TypeToBeProcessed, Value *BasePointer,
-                     std::string MemberName = "");
-
   // Get the source-level expression for an LLVM value.
   std::string getSourceExpression(Value *Operand);
 
@@ -79,12 +74,6 @@ private:
   // Get the source-level expression for a BinaryOperator.
   std::string getSourceExpressionForBinaryOperator(BinaryOperator *BinaryOp,
                                                    Value *Operand);
-
-  // Get the source-level expression for a LoadInst.
-  std::string getSourceExpressionForLoadInst(LoadInst *LoadInstruction);
-
-  // Get the source-level expression for a StoreInst.
-  std::string getSourceExpressionForStoreInst(StoreInst *StoreInstruction);
 
   // Get the source-level expression for a SExtInst.
   std::string getSourceExpressionForSExtInst(SExtInst *SextInstruction);

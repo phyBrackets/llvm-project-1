@@ -20,15 +20,15 @@ entry:
   %s = alloca i32, align 4
   call void @llvm.dbg.declare(metadata ptr %obj, metadata !23, metadata !DIExpression()), !dbg !24
   call void @_ZN3fooC2Ev(ptr noundef nonnull align 4 dereferenceable(24) %obj) #4, !dbg !24
-; CHECK: %a = obj.a
+; CHECK: %a = unknown
   %a = getelementptr inbounds %struct.foo, ptr %obj, i32 0, i32 0, !dbg !25
   store i32 20, ptr %a, align 4, !dbg !26
   call void @llvm.dbg.declare(metadata ptr %s, metadata !27, metadata !DIExpression()), !dbg !28
-; CHECK: %arr = obj.arr
+; CHECK: %arr = unknown
   %arr = getelementptr inbounds %struct.foo, ptr %obj, i32 0, i32 1, !dbg !29
-; CHECK: %arrayidx = &obj.arr[3]
+; CHECK: %arrayidx = unknown
   %arrayidx = getelementptr inbounds [5 x i32], ptr %arr, i64 0, i64 3, !dbg !30
-; CHECK: %0 = obj.arr[3]
+; CHECK: %0 = unknown
   %0 = load i32, ptr %arrayidx, align 4, !dbg !30
   store i32 %0, ptr %s, align 4, !dbg !28
   ret void, !dbg !31

@@ -56,7 +56,6 @@
 #ifndef LLVM_TRANSFORMS_VECTORIZE_LOOPVECTORIZE_H
 #define LLVM_TRANSFORMS_VECTORIZE_LOOPVECTORIZE_H
 
-#include "llvm/Analysis/SourceExpressionAnalysis.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/Support/CommandLine.h"
 
@@ -183,7 +182,6 @@ public:
   LoopAccessInfoManager *LAIs;
   OptimizationRemarkEmitter *ORE;
   ProfileSummaryInfo *PSI;
-  LoadStoreSourceExpression *LSE;
 
   PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM);
   void printPipeline(raw_ostream &OS,
@@ -196,8 +194,7 @@ public:
                               DemandedBits &DB_, AssumptionCache &AC_,
                               LoopAccessInfoManager &LAIs_,
                               OptimizationRemarkEmitter &ORE_,
-                              ProfileSummaryInfo *PSI_,
-                              LoadStoreSourceExpression &LSE_);
+                              ProfileSummaryInfo *PSI_);
 
   bool processLoop(Loop *L);
 };

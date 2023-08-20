@@ -35,7 +35,6 @@ using namespace llvm;
 // the function returns the appropriate symbol, such as "+",
 // "-", "*", "/", "<<", ">>", "&", "|", "^", or "%". If the opcode is not
 // supported, the function returns "unknown".
-
 std::string
 LoadStoreSourceExpression::getExpressionFromOpcode(unsigned Opcode) {
   // Map LLVM opcodes to source-level expressions
@@ -84,21 +83,18 @@ static const std::string removeAmpersand(StringRef AddrStr) {
   return Result;
 }
 
-/**
- * Process the debug metadata for the given stored value. This function
- * retrieves the corresponding debug values (DbgValueInst) and debug declare
- * instructions (DbgDeclareInst) associated with the stored value. If a
- * DbgDeclareInst is found, the associated DILocalVariable is retrieved and
- * returned. If a DbgValueInst is found, the associated DILocalVariable is
- * retrieved and the source expression is stored in the 'sourceExpressionsMap'
- * for the stored value. This function is used to extract debug information for
- * the source expressions.
- *
- * @param StoredValue The stored value to process.
- * @return The DILocalVariable associated with the stored value, or nullptr if
- * no debug metadata is found.
- */
-
+// Process the debug metadata for the given stored value. This function
+// retrieves the corresponding debug values (DbgValueInst) and debug declare
+// instructions (DbgDeclareInst) associated with the stored value. If a
+// DbgDeclareInst is found, the associated DILocalVariable is retrieved and
+// returned. If a DbgValueInst is found, the associated DILocalVariable is
+// retrieved and the source expression is stored in the 'sourceExpressionsMap'
+// for the stored value. This function is used to extract debug information for
+// the source expressions.
+//
+// @param StoredValue The stored value to process.
+// @return The DILocalVariable associated with the stored value, or nullptr if
+// no debug metadata is found.
 DILocalVariable *
 LoadStoreSourceExpression::processDbgMetadata(Value *StoredValue) {
   if (StoredValue->isUsedByMetadata()) {
@@ -110,16 +106,12 @@ LoadStoreSourceExpression::processDbgMetadata(Value *StoredValue) {
         FindDbgDeclareUses(StoredValue);
 
     if (!DbgDeclareInsts.empty()) {
-      assert(DbgDeclareInsts.size() == 1);
-
       // Handle the case where DbgDeclareInst is found
       DbgDeclareInst *DbgDeclare = DbgDeclareInsts[0];
       DILocalVariable *LocalVar = DbgDeclare->getVariable();
       SourceExpressionsMap[StoredValue] = LocalVar->getName().str();
       return LocalVar;
     } else if (!DbgValues.empty()) {
-      assert(DbgValues.size() == 1);
-
       // Handle the case where DbgValueInst is found
       DbgValueInst *DbgValue = DbgValues[0];
       DILocalVariable *LocalVar = DbgValue->getVariable();
@@ -131,96 +123,29 @@ LoadStoreSourceExpression::processDbgMetadata(Value *StoredValue) {
   return nullptr;
 }
 
-/**
- * Process the given DIType.
- * This function recursively traverses the type hierarchy to handle basic types,
- * derived types, and composite types (such as structures and arrays). For basic
- * types, information about the member is stored in the memberInfo map. For
- * derived types, the `processDIType` function is called recursively with the
- * base type. For structures, each element is processed recursively using the
- * `processDIType` function. For arrays, the base type (which is a structure) is
- * processed recursively with the same member name.
- *
- * @param TypeToBeProcessed The DIType to process.
- * @param BasePointer The base pointer value associated with the DIType.
- * @param MemberName The name of the member, if applicable.
- */
-
-void LoadStoreSourceExpression::processDIType(DIType *TypeToBeProcessed,
-                                              Value *BasePointer,
-                                              std::string MemberName) {
-  // Check if the DIType is valid
-  if (!TypeToBeProcessed) {
-    return;
-  }
-
-  // Process basic type associated with the type
-  if (auto *BasicType = dyn_cast<DIBasicType>(TypeToBeProcessed)) {
-    // Store information about the member
-    MemberInfo[BasePointer->getName()].push_back(
-        {BasicType->getName().str(), MemberName});
-  }
-  // Process derived type associated with the type
-  else if (auto *DerivedType = dyn_cast<DIDerivedType>(TypeToBeProcessed)) {
-    std::string DerivedMemberName = DerivedType->getName().str();
-    auto *NestedType = DerivedType->getBaseType();
-
-    // Recursively process the nested type
-    processDIType(NestedType, BasePointer, DerivedMemberName);
-  }
-  // Process composite types (structures, arrays, etc.)
-  else if (auto *CompositeType = dyn_cast<DICompositeType>(TypeToBeProcessed)) {
-    // Check if the composite type is a structure
-    if (CompositeType->getTag() == dwarf::DW_TAG_structure_type) {
-      auto NodeArray = CompositeType->getElements();
-      if (NodeArray) {
-        // Iterate over the elements of the structure
-        for (unsigned i = 0; i < NodeArray.size(); ++i) {
-          Metadata *StructMetadata = NodeArray[i];
-          DIType *NestedDINode = dyn_cast<DIType>(StructMetadata);
-          processDIType(NestedDINode, BasePointer, MemberName);
-        }
-      }
-    }
-    // Check if the composite type is an array
-    else if (CompositeType->getTag() == dwarf::DW_TAG_array_type) {
-      auto *BaseType = CompositeType->getBaseType();
-      // Recursively process the base type (which is a structure)
-      processDIType(BaseType, BasePointer, MemberName);
-    }
-  }
-}
-
-/**
- * Get the source-level expression for an LLVM value.
- *
- * @param Operand The LLVM value to generate the source-level expression for.
- */
-
+// Get the source-level expression for an LLVM value.
+// @param Operand The LLVM value to generate the source-level expression for.
 std::string LoadStoreSourceExpression::getSourceExpression(Value *Operand) {
 
   if (SourceExpressionsMap.count(Operand))
     return SourceExpressionsMap[Operand];
-
-  // Check if the operand has debug metadata associated with it
-  if (!isa<ConstantInt>(Operand)) {
-    DILocalVariable *LocalVar = processDbgMetadata(Operand);
-    if (LocalVar) {
-      return LocalVar->getName().str();
-    }
-  }
 
   if (GetElementPtrInst *GepInstruction =
           dyn_cast<GetElementPtrInst>(Operand)) {
     return getSourceExpressionForGetElementPtr(GepInstruction);
   } else if (BinaryOperator *BinaryOp = dyn_cast<BinaryOperator>(Operand)) {
     return getSourceExpressionForBinaryOperator(BinaryOp, Operand);
-  } else if (LoadInst *LoadInstruction = dyn_cast<LoadInst>(Operand)) {
-    return getSourceExpressionForLoadInst(LoadInstruction);
-  } else if (StoreInst *StoreInstruction = dyn_cast<StoreInst>(Operand)) {
-    return getSourceExpressionForStoreInst(StoreInstruction);
   } else if (SExtInst *SextInstruction = dyn_cast<SExtInst>(Operand)) {
     return getSourceExpressionForSExtInst(SextInstruction);
+  } else {
+    // Check if the operand has debug metadata associated with it
+    if (!isa<ConstantInt>(Operand)) {
+      DILocalVariable *LocalVar = processDbgMetadata(Operand);
+      if (LocalVar) {
+        SourceExpressionsMap[Operand] = LocalVar->getName().str();
+        return SourceExpressionsMap[Operand];
+      }
+    }
   }
 
   // If no specific case matches, return the name of the operand or its
@@ -233,7 +158,6 @@ std::string LoadStoreSourceExpression::getSourceExpression(Value *Operand) {
 //   0: If the DIType is null or the type tag is unknown or unsupported
 //   DW_TAG_base_type, DW_TAG_pointer_type, DW_TAG_const_type, etc.: The type
 //   tag
-
 static uint16_t getTypeTag(DIType *TypeToBeProcessed) {
   if (!TypeToBeProcessed)
     return 0;
@@ -251,19 +175,16 @@ static uint16_t getTypeTag(DIType *TypeToBeProcessed) {
   return 0;
 }
 
-/**
- * Get the source-level expression for a GetElementPtr instruction.
- *
- * @param GepInstruction The GetElementPtr instruction.
- * @return The source-level expression for the address computation.
- */
-
+// Get the source-level expression for a GetElementPtr instruction.
+// @param GepInstruction The GetElementPtr instruction.
+// @return The source-level expression for the address computation.
 std::string LoadStoreSourceExpression::getSourceExpressionForGetElementPtr(
     GetElementPtrInst *GepInstruction) {
   // GetElementPtr instruction - construct source expression for address
   // computation
   Value *BasePointer = GepInstruction->getOperand(0);
   Value *Offset = GepInstruction->getOperand(GepInstruction->getNumIndices());
+  // auto *type = GepInstruction->getSourceElementType();
 
   int OffsetVal = INT_MIN;
   if (ConstantInt *OffsetConstant = dyn_cast<ConstantInt>(Offset)) {
@@ -273,20 +194,27 @@ std::string LoadStoreSourceExpression::getSourceExpressionForGetElementPtr(
 
   DILocalVariable *LocalVar = processDbgMetadata(BasePointer);
   DIType *Type = LocalVar ? LocalVar->getType() : nullptr;
-  processDIType(Type, BasePointer);
 
   std::string BasePointerName = getSourceExpression(BasePointer);
   std::string OffsetName = getSourceExpression(Offset);
 
   SmallString<32> Expression;
   raw_svector_ostream OS(Expression);
+  std::string unKnownExpression;
 
   uint16_t Tag = getTypeTag(Type);
+  auto *sourceElementType = GepInstruction->getSourceElementType();
 
-  if (Tag == dwarf::DW_TAG_structure_type) {
-    // It's a struct type
-    OS << BasePointerName << "."
-       << MemberInfo[BasePointer->getName()].at(OffsetVal).second;
+  // If the source element type is a struct or an array of structs, set the
+  // source expression as "unknown"
+  if (Tag == dwarf::DW_TAG_structure_type ||
+      sourceElementType->getTypeID() == Type::TypeID::StructTyID ||
+      (sourceElementType->getTypeID() == Type::TypeID::ArrayTyID &&
+       sourceElementType->getArrayElementType()->getTypeID() ==
+           Type::TypeID::StructTyID) ||
+      SourceExpressionsMap[BasePointer] == "unknown") {
+    SourceExpressionsMap[GepInstruction] = "unknown";
+    return "unknown";
   } else if (Tag == dwarf::DW_TAG_array_type ||
              isa<PointerType>(BasePointer->getType())) {
     if (BasePointerName.find('[') == std::string::npos) {
@@ -310,20 +238,18 @@ std::string LoadStoreSourceExpression::getSourceExpressionForGetElementPtr(
   return Expression.str().str();
 }
 
-/**
- * Get the source-level expression for a binary operator instruction.
- *
- * @param BinaryOp The binary operator instruction.
- * @param Operand The operand associated with the instruction.
- * @return The source-level expression for the binary operation.
- */
-
+// Get the source-level expression for a binary operator instruction.
+// @param BinaryOp The binary operator instruction.
+// @param Operand The operand associated with the instruction.
+// @return The source-level expression for the binary operation.
 std::string LoadStoreSourceExpression::getSourceExpressionForBinaryOperator(
     BinaryOperator *BinaryOp, Value *Operand) {
   // Binary operator - build source expression using two operands
   Value *Operand1 = BinaryOp->getOperand(0);
   Value *Operand2 = BinaryOp->getOperand(1);
 
+  // dbgs() << Operand2->getNameOrAsOperand() << " " <<
+  // Operand1->getNameOrAsOperand() << "\n"; dbgs() << *Operand;
   std::string Name1 = getSourceExpression(Operand1);
   std::string Name2 = getSourceExpression(Operand2);
   std::string Opcode = BinaryOp->getOpcodeName();
@@ -339,49 +265,6 @@ std::string LoadStoreSourceExpression::getSourceExpressionForBinaryOperator(
   return Expression.str().str();
 }
 
-/**
- * Get the source-level expression for a load instruction.
- *
- * @param LoadInstruction The load instruction.
- * @return The source-level expression for the value operand.
- */
-
-std::string LoadStoreSourceExpression::getSourceExpressionForLoadInst(
-    LoadInst *LoadInstruction) {
-  // Load instruction - return the source expression for its value operand
-
-  Value *OperandVal = LoadInstruction->getPointerOperand();
-
-  // Check if a source expression exists for the value operand
-  std::string OperandName = getSourceExpression(OperandVal);
-
-  SourceExpressionsMap[OperandVal] = OperandName;
-
-  // Return the source expression for the value operand
-  return OperandName;
-}
-
-/**
- * Get the source-level expression for a store instruction.
- *
- * @param StoreInstruction The store instruction.
- * @return The source-level expression for the value operand.
- */
-
-std::string LoadStoreSourceExpression::getSourceExpressionForStoreInst(
-    StoreInst *StoreInstruction) {
-  // Store instruction - return the source expression for its value operand
-
-  Value *OperandVal = StoreInstruction->getValueOperand();
-
-  // Check if a source expression exists for the value operand
-  std::string OperandName = getSourceExpression(OperandVal);
-
-  SourceExpressionsMap[StoreInstruction->getPointerOperand()] = OperandName;
-  // Return the source expression for the value operand
-  return OperandName;
-}
-
 // Helper function to get the type name as a string
 static std::string getTypeNameAsString(Type *TypeToBeProcessed) {
   std::string TypeName;
@@ -390,12 +273,9 @@ static std::string getTypeNameAsString(Type *TypeToBeProcessed) {
   return TypeNameStream.str();
 }
 
-/*
- * Get the source-level expression for a sign extension instruction.
- *
- * @param SextInstruction The sign extension instruction.
- * @return The source-level expression for the operand.
- */
+// Get the source-level expression for a sign extension instruction.
+// @param SextInstruction The sign extension instruction.
+// @return The source-level expression for the operand.
 std::string LoadStoreSourceExpression::getSourceExpressionForSExtInst(
     SExtInst *SextInstruction) {
   // Signed Extension instruction - return the source expression for its operand
@@ -463,8 +343,22 @@ AnalysisKey SourceExpressionAnalysis::Key;
 
 SourceExpressionAnalysis::Result
 SourceExpressionAnalysis::run(Function &F, FunctionAnalysisManager &) {
+  LoadStoreSourceExpression PI(
+      F); // Create an instance of LoadStoreSourceExpression
+  ReversePostOrderTraversal<Function *> RPOT(&F);
+  for (BasicBlock *BB : RPOT) {
+    for (Instruction &I : *BB) {
+      if (auto *loadInst = dyn_cast<LoadInst>(&I)) {
+        // Process the LoadInst and generate the source expressions
+        PI.processLoadInst(loadInst);
+      } else if (auto *storeInst = dyn_cast<StoreInst>(&I)) {
+        // Process the StoreInst and generate the source expressions
+        PI.processStoreInst(storeInst);
+      }
+    }
+  }
 
-  return LoadStoreSourceExpression(F);
+  return PI; // Return the built LoadStoreSourceExpression instance
 }
 
 void LoadStoreSourceExpression::print(raw_ostream &OS) const {

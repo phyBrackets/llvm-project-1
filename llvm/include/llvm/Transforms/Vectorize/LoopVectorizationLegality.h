@@ -39,7 +39,6 @@ class BlockFrequencyInfo;
 class DemandedBits;
 class DominatorTree;
 class Function;
-class LoadStoreSourceExpression;
 class Loop;
 class LoopInfo;
 class Metadata;
@@ -246,11 +245,10 @@ public:
       TargetTransformInfo *TTI, TargetLibraryInfo *TLI, Function *F,
       LoopAccessInfoManager &LAIs, LoopInfo *LI, OptimizationRemarkEmitter *ORE,
       LoopVectorizationRequirements *R, LoopVectorizeHints *H, DemandedBits *DB,
-      AssumptionCache *AC, BlockFrequencyInfo *BFI, ProfileSummaryInfo *PSI,
-      LoadStoreSourceExpression *LSE)
+      AssumptionCache *AC, BlockFrequencyInfo *BFI, ProfileSummaryInfo *PSI)
       : TheLoop(L), LI(LI), PSE(PSE), TTI(TTI), TLI(TLI), DT(DT), LAIs(LAIs),
-        ORE(ORE), Requirements(R), Hints(H), DB(DB), AC(AC), BFI(BFI), PSI(PSI),
-        LSE(LSE) {}
+        ORE(ORE), Requirements(R), Hints(H), DB(DB), AC(AC), BFI(BFI),
+        PSI(PSI) {}
 
   /// ReductionList contains the reduction descriptors for all
   /// of the reductions that were found in the loop.
@@ -553,9 +551,6 @@ private:
   BlockFrequencyInfo *BFI;
   ProfileSummaryInfo *PSI;
 
-  /// @brief LSE is used for building the source level expression for
-  /// corresponding load/store instruction for better remarks
-  LoadStoreSourceExpression *LSE;
 };
 
 } // namespace llvm

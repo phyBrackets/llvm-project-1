@@ -10190,7 +10190,7 @@ bool LoopVectorizePass::processLoop(Loop *L) {
   // Check if it is legal to vectorize the loop.
   LoopVectorizationRequirements Requirements;
   LoopVectorizationLegality LVL(L, PSE, DT, TTI, TLI, F, *LAIs, LI, ORE,
-                                &Requirements, &Hints, DB, AC, BFI, PSI, LSE);
+                                &Requirements, &Hints, DB, AC, BFI, PSI);
   if (!LVL.canVectorize(EnableVPlanNativePath)) {
     LLVM_DEBUG(dbgs() << "LV: Not vectorizing: Cannot prove legality.\n");
     Hints.emitRemarkWithHints();
@@ -10587,7 +10587,7 @@ LoopVectorizeResult LoopVectorizePass::runImpl(
     Function &F, ScalarEvolution &SE_, LoopInfo &LI_, TargetTransformInfo &TTI_,
     DominatorTree &DT_, BlockFrequencyInfo *BFI_, TargetLibraryInfo *TLI_,
     DemandedBits &DB_, AssumptionCache &AC_, LoopAccessInfoManager &LAIs_,
-    OptimizationRemarkEmitter &ORE_, ProfileSummaryInfo *PSI_, SourceExpressionAnalysis::Result &LSE_) {
+    OptimizationRemarkEmitter &ORE_, ProfileSummaryInfo *PSI_) {
   SE = &SE_;
   LI = &LI_;
   TTI = &TTI_;
@@ -10599,7 +10599,6 @@ LoopVectorizeResult LoopVectorizePass::runImpl(
   DB = &DB_;
   ORE = &ORE_;
   PSI = PSI_;
-  LSE = &LSE_;
 
   // Don't attempt if
   // 1. the target claims to have no vector registers, and
@@ -10665,7 +10664,6 @@ PreservedAnalyses LoopVectorizePass::run(Function &F,
     auto &AC = AM.getResult<AssumptionAnalysis>(F);
     auto &DB = AM.getResult<DemandedBitsAnalysis>(F);
     auto &ORE = AM.getResult<OptimizationRemarkEmitterAnalysis>(F);
-    auto &LSE = AM.getResult<SourceExpressionAnalysis>(F);
 
     LoopAccessInfoManager &LAIs = AM.getResult<LoopAccessAnalysis>(F);
     auto &MAMProxy = AM.getResult<ModuleAnalysisManagerFunctionProxy>(F);
@@ -10675,7 +10673,7 @@ PreservedAnalyses LoopVectorizePass::run(Function &F,
     if (PSI && PSI->hasProfileSummary())
       BFI = &AM.getResult<BlockFrequencyAnalysis>(F);
     LoopVectorizeResult Result =
-        runImpl(F, SE, LI, TTI, DT, BFI, &TLI, DB, AC, LAIs, ORE, PSI, LSE);
+        runImpl(F, SE, LI, TTI, DT, BFI, &TLI, DB, AC, LAIs, ORE, PSI);
     if (!Result.MadeAnyChange)
       return PreservedAnalyses::all();
     PreservedAnalyses PA;
