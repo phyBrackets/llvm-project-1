@@ -700,8 +700,6 @@ private:
   /// If an access has a symbolic strides, this maps the pointer value to
   /// the stride symbol.
   DenseMap<Value *, const SCEV *> SymbolicStrides;
-  //LSE->getSourceExpressionForValue();
-  //LoadStoreSourceExpression* LSE;
 };
 
 /// Return the SCEV corresponding to a pointer with the symbolic stride
