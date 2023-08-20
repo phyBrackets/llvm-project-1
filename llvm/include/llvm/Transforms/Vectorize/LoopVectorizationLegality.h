@@ -550,7 +550,6 @@ private:
   /// BFI and PSI are used to check for profile guided size optimizations.
   BlockFrequencyInfo *BFI;
   ProfileSummaryInfo *PSI;
-
 };
 
 } // namespace llvm
