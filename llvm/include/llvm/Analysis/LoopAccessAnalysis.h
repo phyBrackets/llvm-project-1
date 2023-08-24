@@ -31,6 +31,7 @@ class raw_ostream;
 class SCEV;
 class SCEVUnionPredicate;
 class Value;
+class LoadStoreSourceExpression;
 
 /// Collection of parameters shared beetween the Loop Vectorizer and the
 /// Loop Access Analysis.
@@ -562,7 +563,7 @@ private:
 class LoopAccessInfo {
 public:
   LoopAccessInfo(Loop *L, ScalarEvolution *SE, const TargetLibraryInfo *TLI,
-                 AAResults *AA, DominatorTree *DT, LoopInfo *LI);
+                 AAResults *AA, DominatorTree *DT, LoopInfo *LI, LoadStoreSourceExpression *LSE);
 
   /// Return true we can analyze the memory accesses in the loop and there are
   /// no memory dependence cycles.
@@ -640,7 +641,7 @@ public:
 private:
   /// Analyze the loop.
   void analyzeLoop(AAResults *AA, LoopInfo *LI,
-                   const TargetLibraryInfo *TLI, DominatorTree *DT);
+                   const TargetLibraryInfo *TLI, DominatorTree *DT, LoadStoreSourceExpression *LSE);
 
   /// Check if the structure of the loop allows it to be analyzed by this
   /// pass.
@@ -663,7 +664,7 @@ private:
   // Emits the first unsafe memory dependence in a loop.
   // Emits nothing if there are no unsafe dependences
   // or if the dependences were not recorded.
-  void emitUnsafeDependenceRemark();
+  void emitUnsafeDependenceRemark(LoadStoreSourceExpression *LSE);
 
   std::unique_ptr<PredicatedScalarEvolution> PSE;
 
@@ -775,11 +776,12 @@ class LoopAccessInfoManager {
   DominatorTree &DT;
   LoopInfo &LI;
   const TargetLibraryInfo *TLI = nullptr;
+  LoadStoreSourceExpression &LSE;
 
 public:
   LoopAccessInfoManager(ScalarEvolution &SE, AAResults &AA, DominatorTree &DT,
-                        LoopInfo &LI, const TargetLibraryInfo *TLI)
-      : SE(SE), AA(AA), DT(DT), LI(LI), TLI(TLI) {}
+                        LoopInfo &LI, const TargetLibraryInfo *TLI, LoadStoreSourceExpression &LSE)
+      : SE(SE), AA(AA), DT(DT), LI(LI), TLI(TLI), LSE(LSE) {}
 
   const LoopAccessInfo &getInfo(Loop &L);
 
