@@ -202,14 +202,14 @@ std::string LoadStoreSourceExpression::getSourceExpressionForGetElementPtr(
   raw_svector_ostream OS(Expression);
 
   uint16_t Tag = getTypeTag(Type);
-  auto *sourceElementType = GepInstruction->getSourceElementType();
+  auto *SourceElementType = GepInstruction->getSourceElementType();
 
   // If the source element type is a struct or an array of structs, set the
   // source expression as "unknown"
   if (Tag == dwarf::DW_TAG_structure_type ||
-      sourceElementType->getTypeID() == Type::TypeID::StructTyID ||
-      (sourceElementType->getTypeID() == Type::TypeID::ArrayTyID &&
-       sourceElementType->getArrayElementType()->getTypeID() ==
+      SourceElementType->getTypeID() == Type::TypeID::StructTyID ||
+      (SourceElementType->getTypeID() == Type::TypeID::ArrayTyID &&
+       SourceElementType->getArrayElementType()->getTypeID() ==
            Type::TypeID::StructTyID) ||
       SourceExpressionsMap[BasePointer] == "unknown") {
     SourceExpressionsMap[GepInstruction] = "unknown";
