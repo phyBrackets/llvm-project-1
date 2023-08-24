@@ -1,4 +1,19 @@
-
+//===- SourceExpressionAnalysis.h - Mapping LLVM Values to Source Level Expression -------------------------*- C++ -*-===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+//
+// The file defines the LoadStoreSourceExpression class related to analyzing
+// and generating source-level expressions for LLVM values by utilising the 
+// debug metadata.
+//
+// This analysis is useful for understanding memory access patterns, aiding optimization decisions, 
+// and providing more informative optimization reports.
+//
+//===----------------------------------------------------------------------===//
 
 #ifndef LLVM_ANALYSIS_SOURCEEXPRESSIONANALYSIS_H
 #define LLVM_ANALYSIS_SOURCEEXPRESSIONANALYSIS_H
@@ -53,16 +68,6 @@ private:
   DILocalVariable *processDbgMetadata(Value *StoredValue);
 
   const Function &F;
-
-  // This data structure is used to store information about the members of a
-  // structure. It is implemented as a `DenseMap`, where the keys are of type
-  // `StringRef` and represent the name of the base pointer or the object name,
-  // and the values are vectors of pairs. Each pair consists of two strings,
-  // representing the member name and the processed type information of the
-  // member.
-
-  DenseMap<StringRef, std::vector<std::pair<std::string, std::string>>>
-      MemberInfo;
 
   // Get the source-level expression for an LLVM value.
   std::string getSourceExpression(Value *Operand);

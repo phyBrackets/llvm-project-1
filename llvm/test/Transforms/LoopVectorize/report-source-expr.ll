@@ -12,7 +12,7 @@
 ;   }
 ; }
 
-; CHECK:remark: source.c:4:14: loop not vectorized: unsafe dependent memory operations in loop. Use #pragma loop distribute(enable) to allow loop distribution to attempt to isolate the offending operations into a separate loop Dependence source: &A[i] Dependence destination: A[(i + 3)]
+; CHECK:remark: source.c:4:14: loop not vectorized: unsafe dependent memory operations in loop. Use #pragma loop distribute(enable) to allow loop distribution to attempt to isolate the offending operations into a separate loop Dependence source: &A[i] Dependence destination: &A[(i + 3)]
 ; CHECK-NEXT: Backward loop carried data dependence. Memory location is the same as accessed at source.c:3:6
 
 define dso_local void @test_backward_dep(i32 noundef %n, ptr nocapture noundef %A) local_unnamed_addr #0 !dbg !10 {
@@ -64,7 +64,7 @@ for.body:                                         ; preds = %for.body.preheader,
 ;   }
 ; }
 
-; CHECK:remark: source.c:10:11: loop not vectorized: unsafe dependent memory operations in loop. Use #pragma loop distribute(enable) to allow loop distribution to attempt to isolate the offending operations into a separate loop Dependence source: A[(i + -3)] Dependence destination: &A[(i + 1)]
+; CHECK:remark: source.c:10:11: loop not vectorized: unsafe dependent memory operations in loop. Use #pragma loop distribute(enable) to allow loop distribution to attempt to isolate the offending operations into a separate loop Dependence source: &A[(i + -3)] Dependence destination: &A[(i + 1)]
 ; CHECK-NEXT:  Backward loop carried data dependence. Memory location is the same as accessed at source.c:11:13
 
 define dso_local void @test_forwardButPreventsForwarding_dep(i32 noundef %n, ptr nocapture noundef %A, ptr nocapture noundef writeonly %B) local_unnamed_addr #0 !dbg !43 {
@@ -148,7 +148,7 @@ for.body:                                         ; preds = %for.body, %for.body
 ;   }
 ; }
 
-; CHECK:remark: source.c:17:11: loop not vectorized: unsafe dependent memory operations in loop. Use #pragma loop distribute(enable) to allow loop distribution to attempt to isolate the offending operations into a separate loop Dependence source: A[(i + -1)] Dependence destination: &A[(i + 1)]
+; CHECK:remark: source.c:17:11: loop not vectorized: unsafe dependent memory operations in loop. Use #pragma loop distribute(enable) to allow loop distribution to attempt to isolate the offending operations into a separate loop Dependence source: &A[(i + -1)] Dependence destination: &A[(i + 1)]
 ; CHECK: Backward loop carried data dependence. Memory location is the same as accessed at source.c:17:13
 
 define dso_local void @test_backwardVectorizableButPreventsForwarding(i32 noundef %n, ptr nocapture noundef %A) local_unnamed_addr #0 !dbg !68 {

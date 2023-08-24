@@ -2463,7 +2463,7 @@ void LoopAccessInfo::emitUnsafeDependenceRemark(LoadStoreSourceExpression *LSE) 
   if (Found == Deps->end())
     return;
   MemoryDepChecker::Dependence Dep = *Found;
-
+  
   LLVM_DEBUG(dbgs() << "LAA: unsafe dependent memory operations in loop\n");
 
   OptimizationRemarkAnalysis &R =
@@ -2479,28 +2479,33 @@ void LoopAccessInfo::emitUnsafeDependenceRemark(LoadStoreSourceExpression *LSE) 
   if (ReportSourceExpr) {
     llvm::Instruction *SourceInst = Dep.getSource(*this);
     llvm::Instruction *DestInst = Dep.getDestination(*this);
-   
+
     R << " Dependence source: ";
     llvm::Value *SourceValue = nullptr;
 
     if (llvm::StoreInst *StoreInstruction =
             llvm::dyn_cast<llvm::StoreInst>(SourceInst)) {
       SourceValue = StoreInstruction->getPointerOperand();
+    } else if (llvm::LoadInst *LoadInstruction =
+                   llvm::dyn_cast<llvm::LoadInst>(SourceInst)) {
+      SourceValue = LoadInstruction->getPointerOperand();
     } else {
       SourceValue = Dep.getSource(*this);
     }
-   
     R << LSE->getSourceExpressionForValue(SourceValue);
 
     R << " Dependence destination: ";
     llvm::Value *DestValue = nullptr;
+
     if (llvm::StoreInst *StoreInstruction =
             llvm::dyn_cast<llvm::StoreInst>(DestInst)) {
       DestValue = StoreInstruction->getPointerOperand();
+    } else if (llvm::LoadInst *LoadInstruction =
+                   llvm::dyn_cast<llvm::LoadInst>(DestInst)) {
+      DestValue = LoadInstruction->getPointerOperand();
     } else {
       DestValue = Dep.getDestination(*this);
     }
-
     R << LSE->getSourceExpressionForValue(DestValue);
   }
 

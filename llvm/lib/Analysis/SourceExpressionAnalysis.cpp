@@ -200,7 +200,6 @@ std::string LoadStoreSourceExpression::getSourceExpressionForGetElementPtr(
 
   SmallString<32> Expression;
   raw_svector_ostream OS(Expression);
-  std::string unKnownExpression;
 
   uint16_t Tag = getTypeTag(Type);
   auto *sourceElementType = GepInstruction->getSourceElementType();
