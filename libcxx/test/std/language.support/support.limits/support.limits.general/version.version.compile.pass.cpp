@@ -3400,17 +3400,11 @@
 #   error "__cpp_lib_format_ranges should not be defined before c++23"
 # endif
 
-# if !defined(_LIBCPP_VERSION)
-#   ifndef __cpp_lib_format_uchar
-#     error "__cpp_lib_format_uchar should be defined in c++20"
-#   endif
-#   if __cpp_lib_format_uchar != 202311L
-#     error "__cpp_lib_format_uchar should have the value 202311L in c++20"
-#   endif
-# else // _LIBCPP_VERSION
-#   ifdef __cpp_lib_format_uchar
-#     error "__cpp_lib_format_uchar should not be defined because it is unimplemented in libc++!"
-#   endif
+# ifndef __cpp_lib_format_uchar
+#   error "__cpp_lib_format_uchar should be defined in c++20"
+# endif
+# if __cpp_lib_format_uchar != 202311L
+#   error "__cpp_lib_format_uchar should have the value 202311L in c++20"
 # endif
 
 # ifdef __cpp_lib_formatters
@@ -4802,17 +4796,11 @@
 #   error "__cpp_lib_format_ranges should have the value 202207L in c++23"
 # endif
 
-# if !defined(_LIBCPP_VERSION)
-#   ifndef __cpp_lib_format_uchar
-#     error "__cpp_lib_format_uchar should be defined in c++23"
-#   endif
-#   if __cpp_lib_format_uchar != 202311L
-#     error "__cpp_lib_format_uchar should have the value 202311L in c++23"
-#   endif
-# else // _LIBCPP_VERSION
-#   ifdef __cpp_lib_format_uchar
-#     error "__cpp_lib_format_uchar should not be defined because it is unimplemented in libc++!"
-#   endif
+# ifndef __cpp_lib_format_uchar
+#   error "__cpp_lib_format_uchar should be defined in c++23"
+# endif
+# if __cpp_lib_format_uchar != 202311L
+#   error "__cpp_lib_format_uchar should have the value 202311L in c++23"
 # endif
 
 # if !defined(_LIBCPP_VERSION)
@@ -6420,17 +6408,11 @@
 #   error "__cpp_lib_format_ranges should have the value 202207L in c++26"
 # endif
 
-# if !defined(_LIBCPP_VERSION)
-#   ifndef __cpp_lib_format_uchar
-#     error "__cpp_lib_format_uchar should be defined in c++26"
-#   endif
-#   if __cpp_lib_format_uchar != 202311L
-#     error "__cpp_lib_format_uchar should have the value 202311L in c++26"
-#   endif
-# else // _LIBCPP_VERSION
-#   ifdef __cpp_lib_format_uchar
-#     error "__cpp_lib_format_uchar should not be defined because it is unimplemented in libc++!"
-#   endif
+# ifndef __cpp_lib_format_uchar
+#   error "__cpp_lib_format_uchar should be defined in c++26"
+# endif
+# if __cpp_lib_format_uchar != 202311L
+#   error "__cpp_lib_format_uchar should have the value 202311L in c++26"
 # endif
 
 # if !defined(_LIBCPP_VERSION)
