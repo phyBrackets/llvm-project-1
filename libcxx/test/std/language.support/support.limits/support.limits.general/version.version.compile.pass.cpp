@@ -84,6 +84,7 @@
                                                      201902L [C++20]
     __cpp_lib_expected                               202211L [C++23]
     __cpp_lib_filesystem                             201703L [C++17]
+    __cpp_lib_find_last                              202207L [C++23]
     __cpp_lib_format                                 202106L [C++20]
     __cpp_lib_format_ranges                          202207L [C++23]
     __cpp_lib_format_uchar                           202311L [C++20]
@@ -482,6 +483,10 @@
 
 # ifdef __cpp_lib_filesystem
 #   error "__cpp_lib_filesystem should not be defined before c++17"
+# endif
+
+# ifdef __cpp_lib_find_last
+#   error "__cpp_lib_find_last should not be defined before c++23"
 # endif
 
 # ifdef __cpp_lib_format
@@ -1281,6 +1286,10 @@
 
 # ifdef __cpp_lib_filesystem
 #   error "__cpp_lib_filesystem should not be defined before c++17"
+# endif
+
+# ifdef __cpp_lib_find_last
+#   error "__cpp_lib_find_last should not be defined before c++23"
 # endif
 
 # ifdef __cpp_lib_format
@@ -2194,6 +2203,10 @@
 #   ifdef __cpp_lib_filesystem
 #     error "__cpp_lib_filesystem should not be defined when the requirement '!defined(_LIBCPP_VERSION) || _LIBCPP_AVAILABILITY_HAS_FILESYSTEM_LIBRARY' is not met!"
 #   endif
+# endif
+
+# ifdef __cpp_lib_find_last
+#   error "__cpp_lib_find_last should not be defined before c++23"
 # endif
 
 # ifdef __cpp_lib_format
@@ -3377,6 +3390,10 @@
 #   ifdef __cpp_lib_filesystem
 #     error "__cpp_lib_filesystem should not be defined when the requirement '!defined(_LIBCPP_VERSION) || _LIBCPP_AVAILABILITY_HAS_FILESYSTEM_LIBRARY' is not met!"
 #   endif
+# endif
+
+# ifdef __cpp_lib_find_last
+#   error "__cpp_lib_find_last should not be defined before c++23"
 # endif
 
 # if !defined(_LIBCPP_VERSION)
@@ -4761,6 +4778,13 @@
 #   ifdef __cpp_lib_filesystem
 #     error "__cpp_lib_filesystem should not be defined when the requirement '!defined(_LIBCPP_VERSION) || _LIBCPP_AVAILABILITY_HAS_FILESYSTEM_LIBRARY' is not met!"
 #   endif
+# endif
+
+# ifndef __cpp_lib_find_last
+#   error "__cpp_lib_find_last should be defined in c++23"
+# endif
+# if __cpp_lib_find_last != 202207L
+#   error "__cpp_lib_find_last should have the value 202207L in c++23"
 # endif
 
 # if !defined(_LIBCPP_VERSION)
@@ -6358,6 +6382,13 @@
 #   ifdef __cpp_lib_filesystem
 #     error "__cpp_lib_filesystem should not be defined when the requirement '!defined(_LIBCPP_VERSION) || _LIBCPP_AVAILABILITY_HAS_FILESYSTEM_LIBRARY' is not met!"
 #   endif
+# endif
+
+# ifndef __cpp_lib_find_last
+#   error "__cpp_lib_find_last should be defined in c++26"
+# endif
+# if __cpp_lib_find_last != 202207L
+#   error "__cpp_lib_find_last should have the value 202207L in c++26"
 # endif
 
 # if !defined(_LIBCPP_VERSION)

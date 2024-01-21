@@ -460,6 +460,11 @@ feature_test_macros = [
             "libcxx_guard": "_LIBCPP_AVAILABILITY_HAS_FILESYSTEM_LIBRARY",
         },
         {
+            "name": "__cpp_lib_find_last",
+            "values": {"c++23": 202207},
+            "headers": ["algorithm"],
+        },
+        {
             "name": "__cpp_lib_format",
             "values": {
                 # "c++20": 201907 Not implemented P1361R2 Integration of chrono with text formatting
