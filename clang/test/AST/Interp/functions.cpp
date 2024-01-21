@@ -267,6 +267,17 @@ namespace InvalidCall {
                    // ref-error {{must be initialized by a constant expression}} \
                    // ref-note {{in call to 'SS()'}}
 
+
+  /// This should not emit a diagnostic.
+  constexpr int f();
+  constexpr int a() {
+    return f();
+  }
+  constexpr int f() {
+    return 5;
+  }
+  static_assert(a() == 5, "");
+
 }
 
 namespace CallWithArgs {
@@ -342,4 +353,63 @@ namespace TemplateUndefined {
   // ok, constant expression.
   constexpr int l = consume(0);
   static_assert(l == 0, "");
+}
+
+namespace PtrReturn {
+  constexpr void *a() {
+    return nullptr;
+  }
+  static_assert(a() == nullptr, "");
+}
+
+namespace Variadic {
+  struct S { int a; bool b; };
+
+  constexpr void variadic_function(int a, ...) {}
+  constexpr int f1() {
+    variadic_function(1, S{'a', false});
+    return 1;
+  }
+  static_assert(f1() == 1, "");
+
+  constexpr int variadic_function2(...) {
+    return 12;
+  }
+  static_assert(variadic_function2() == 12, "");
+  static_assert(variadic_function2(1, 2, 3, 4, 5) == 12, "");
+  static_assert(variadic_function2(1, variadic_function2()) == 12, "");
+
+  constexpr int (*VFP)(...) = variadic_function2;
+  static_assert(VFP() == 12, "");
+}
+
+namespace Packs {
+  template<typename...T>
+  constexpr int foo() { return sizeof...(T); }
+  static_assert(foo<int, char>() == 2, "");
+  static_assert(foo<>() == 0, "");
+}
+
+namespace AddressOf {
+  struct S {} s;
+  static_assert(__builtin_addressof(s) == &s, "");
+
+  struct T { constexpr T *operator&() const { return nullptr; } int n; } t;
+  constexpr T *pt = __builtin_addressof(t);
+  static_assert(&pt->n == &t.n, "");
+
+  struct U { int n : 5; } u;
+  int *pbf = __builtin_addressof(u.n); // expected-error {{address of bit-field requested}} \
+                                       // ref-error {{address of bit-field requested}}
+
+  S *ptmp = __builtin_addressof(S{}); // expected-error {{taking the address of a temporary}} \
+                                      // expected-warning {{temporary whose address is used as value of local variable 'ptmp' will be destroyed at the end of the full-expression}} \
+                                      // ref-error {{taking the address of a temporary}} \
+                                      // ref-warning {{temporary whose address is used as value of local variable 'ptmp' will be destroyed at the end of the full-expression}}
+
+  constexpr int foo() {return 1;}
+  static_assert(__builtin_addressof(foo) == foo, "");
+
+  constexpr _Complex float F = {3, 4};
+  static_assert(__builtin_addressof(F) == &F, "");
 }

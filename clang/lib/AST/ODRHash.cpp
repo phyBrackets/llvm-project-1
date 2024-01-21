@@ -380,17 +380,17 @@ public:
     Hash.AddBoolean(Method->isThisDeclarationADesignatedInitializer());
     Hash.AddBoolean(Method->hasSkippedBody());
 
-    ID.AddInteger(Method->getImplementationControl());
+    ID.AddInteger(llvm::to_underlying(Method->getImplementationControl()));
     ID.AddInteger(Method->getMethodFamily());
     ImplicitParamDecl *Cmd = Method->getCmdDecl();
     Hash.AddBoolean(Cmd);
     if (Cmd)
-      ID.AddInteger(Cmd->getParameterKind());
+      ID.AddInteger(llvm::to_underlying(Cmd->getParameterKind()));
 
     ImplicitParamDecl *Self = Method->getSelfDecl();
     Hash.AddBoolean(Self);
     if (Self)
-      ID.AddInteger(Self->getParameterKind());
+      ID.AddInteger(llvm::to_underlying(Self->getParameterKind()));
 
     AddDecl(Method);
 
@@ -658,6 +658,10 @@ void ODRHash::AddFunctionDecl(const FunctionDecl *Function,
       if (F->isFunctionTemplateSpecialization()) {
         if (!isa<CXXMethodDecl>(DC)) return;
         if (DC->getLexicalParent()->isFileContext()) return;
+        // Skip class scope explicit function template specializations,
+        // as they have not yet been instantiated.
+        if (F->getDependentSpecializationInfo())
+          return;
         // Inline method specializations are the only supported
         // specialization for now.
       }
@@ -684,7 +688,7 @@ void ODRHash::AddFunctionDecl(const FunctionDecl *Function,
   ID.AddInteger(Function->getStorageClass());
   AddBoolean(Function->isInlineSpecified());
   AddBoolean(Function->isVirtualAsWritten());
-  AddBoolean(Function->isPure());
+  AddBoolean(Function->isPureVirtual());
   AddBoolean(Function->isDeletedAsWritten());
   AddBoolean(Function->isExplicitlyDefaulted());
 
@@ -737,8 +741,55 @@ void ODRHash::AddEnumDecl(const EnumDecl *Enum) {
   if (Enum->isScoped())
     AddBoolean(Enum->isScopedUsingClassTag());
 
-  if (Enum->getIntegerTypeSourceInfo())
-    AddQualType(Enum->getIntegerType());
+  if (Enum->getIntegerTypeSourceInfo()) {
+    // FIMXE: This allows two enums with different spellings to have the same
+    // hash.
+    //
+    //  // mod1.cppm
+    //  module;
+    //  extern "C" {
+    //      typedef unsigned __int64 size_t;
+    //  }
+    //  namespace std {
+    //      using :: size_t;
+    //  }
+    //
+    //  extern "C++" {
+    //      namespace std {
+    //          enum class align_val_t : std::size_t {};
+    //      }
+    //  }
+    //
+    //  export module mod1;
+    //  export using std::align_val_t;
+    //
+    //  // mod2.cppm
+    //  module;
+    //  extern "C" {
+    //      typedef unsigned __int64 size_t;
+    //  }
+    //
+    //  extern "C++" {
+    //      namespace std {
+    //          enum class align_val_t : size_t {};
+    //      }
+    //  }
+    //
+    //  export module mod2;
+    //  import mod1;
+    //  export using std::align_val_t;
+    //
+    // The above example should be disallowed since it violates
+    // [basic.def.odr]p14:
+    //
+    //    Each such definition shall consist of the same sequence of tokens
+    //
+    // The definitions of `std::align_val_t` in two module units have different
+    // spellings but we failed to give an error here.
+    //
+    // See https://github.com/llvm/llvm-project/issues/76638 for details.
+    AddQualType(Enum->getIntegerType().getCanonicalType());
+  }
 
   // Filter out sub-Decls which will not be processed in order to get an
   // accurate count of Decl's.
@@ -927,7 +978,7 @@ public:
 
   void VisitArrayType(const ArrayType *T) {
     AddQualType(T->getElementType());
-    ID.AddInteger(T->getSizeModifier());
+    ID.AddInteger(llvm::to_underlying(T->getSizeModifier()));
     VisitQualifiers(T->getIndexTypeQualifiers());
     VisitType(T);
   }
@@ -1177,7 +1228,7 @@ public:
   }
 
   void VisitTypeWithKeyword(const TypeWithKeyword *T) {
-    ID.AddInteger(T->getKeyword());
+    ID.AddInteger(llvm::to_underlying(T->getKeyword()));
     VisitType(T);
   };
 
@@ -1218,7 +1269,7 @@ public:
   void VisitVectorType(const VectorType *T) {
     AddQualType(T->getElementType());
     ID.AddInteger(T->getNumElements());
-    ID.AddInteger(T->getVectorKind());
+    ID.AddInteger(llvm::to_underlying(T->getVectorKind()));
     VisitType(T);
   }
 

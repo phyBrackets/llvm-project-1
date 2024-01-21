@@ -331,7 +331,7 @@ static void GetCostForDef(const ScheduleDAGSDNodes::RegDefIter &RegDefPos,
 
     unsigned Opcode = Node->getMachineOpcode();
     if (Opcode == TargetOpcode::REG_SEQUENCE) {
-      unsigned DstRCIdx = cast<ConstantSDNode>(Node->getOperand(0))->getZExtValue();
+      unsigned DstRCIdx = Node->getConstantOperandVal(0);
       const TargetRegisterClass *RC = TRI->getRegClass(DstRCIdx);
       RegClass = RC->getID();
       Cost = RegSequenceCost;
@@ -986,11 +986,6 @@ SUnit *ScheduleDAGRRList::TryUnfoldSU(SUnit *SU) {
   if (!TII->unfoldMemoryOperand(*DAG, N, NewNodes))
     return nullptr;
 
-  // unfolding an x86 DEC64m operation results in store, dec, load which
-  // can't be handled here so quit
-  if (NewNodes.size() == 3)
-    return nullptr;
-
   assert(NewNodes.size() == 2 && "Expected a load folding node!");
 
   N = NewNodes[1];
@@ -1374,8 +1369,7 @@ DelayForLiveRegsBottomUp(SUnit *SU, SmallVectorImpl<unsigned> &LRegs) {
         --NumOps;  // Ignore the glue operand.
 
       for (unsigned i = InlineAsm::Op_FirstOperand; i != NumOps;) {
-        unsigned Flags =
-          cast<ConstantSDNode>(Node->getOperand(i))->getZExtValue();
+        unsigned Flags = Node->getConstantOperandVal(i);
         const InlineAsm::Flag F(Flags);
         unsigned NumVals = F.getNumOperandRegisters();
 
@@ -2303,8 +2297,7 @@ void RegReductionPQBase::unscheduledNode(SUnit *SU) {
       continue;
     }
     if (POpc == TargetOpcode::REG_SEQUENCE) {
-      unsigned DstRCIdx =
-          cast<ConstantSDNode>(PN->getOperand(0))->getZExtValue();
+      unsigned DstRCIdx = PN->getConstantOperandVal(0);
       const TargetRegisterClass *RC = TRI->getRegClass(DstRCIdx);
       unsigned RCId = RC->getID();
       // REG_SEQUENCE is untyped, so getRepRegClassCostFor could not be used

@@ -26,6 +26,7 @@
 #include "llvm/ExecutionEngine/MCJIT.h"
 #include "llvm/ExecutionEngine/ObjectCache.h"
 #include "llvm/ExecutionEngine/Orc/DebugUtils.h"
+#include "llvm/ExecutionEngine/Orc/Debugging/DebuggerSupport.h"
 #include "llvm/ExecutionEngine/Orc/EPCDynamicLibrarySearchGenerator.h"
 #include "llvm/ExecutionEngine/Orc/EPCEHFrameRegistrar.h"
 #include "llvm/ExecutionEngine/Orc/EPCGenericRTDyldMemoryManager.h"
@@ -452,7 +453,7 @@ int main(int argc, char **argv, char * const *envp) {
     exit(1);
   }
 
-  if (UseJITKind == JITKind::MCJIT)
+  if (UseJITKind == JITKind::MCJIT || ForceInterpreter)
     disallowOrcOptions();
   else
     return runOrcJIT(argv[0]);
@@ -621,7 +622,7 @@ int main(int argc, char **argv, char * const *envp) {
   } else {
     // Otherwise, if there is a .bc suffix on the executable strip it off, it
     // might confuse the program.
-    if (StringRef(InputFile).endswith(".bc"))
+    if (StringRef(InputFile).ends_with(".bc"))
       InputFile.erase(InputFile.length() - 3);
   }
 
@@ -844,6 +845,17 @@ int mingw_noop_main(void) {
   return 0;
 }
 
+// Try to enable debugger support for the given instance.
+// This alway returns success, but prints a warning if it's not able to enable
+// debugger support.
+Error tryEnableDebugSupport(orc::LLJIT &J) {
+  if (auto Err = enableDebuggerSupport(J)) {
+    [[maybe_unused]] std::string ErrMsg = toString(std::move(Err));
+    LLVM_DEBUG(dbgs() << "lli: " << ErrMsg << "\n");
+  }
+  return Error::success();
+}
+
 int runOrcJIT(const char *ProgName) {
   // Start setting up the JIT environment.
 
@@ -924,6 +936,9 @@ int runOrcJIT(const char *ProgName) {
       });
   }
 
+  // Enable debugging of JIT'd code (only works on JITLink for ELF and MachO).
+  Builder.setPrePlatformSetup(tryEnableDebugSupport);
+
   // Set up LLJIT platform.
   LLJITPlatform P = Platform;
   if (P == LLJITPlatform::Auto)
@@ -950,18 +965,18 @@ int runOrcJIT(const char *ProgName) {
     EPC = ExitOnErr(orc::SelfExecutorProcessControl::Create(
         std::make_shared<orc::SymbolStringPool>()));
 
-    Builder.setObjectLinkingLayerCreator([&EPC, &P](orc::ExecutionSession &ES,
-                                                    const Triple &TT) {
-      auto L = std::make_unique<orc::ObjectLinkingLayer>(ES, EPC->getMemMgr());
+    Builder.getJITTargetMachineBuilder()
+        ->setRelocationModel(Reloc::PIC_)
+        .setCodeModel(CodeModel::Small);
+    Builder.setObjectLinkingLayerCreator([&P](orc::ExecutionSession &ES,
+                                              const Triple &TT) {
+      auto L = std::make_unique<orc::ObjectLinkingLayer>(ES);
       if (P != LLJITPlatform::ExecutorNative)
         L->addPlugin(std::make_unique<orc::EHFrameRegistrationPlugin>(
             ES, ExitOnErr(orc::EPCEHFrameRegistrar::Create(ES))));
       return L;
     });
   }
-
-  // Enable debugging of JIT'd code (only works on JITLink for ELF and MachO).
-  Builder.setEnableDebuggerSupport(true);
 
   auto J = ExitOnErr(Builder.create());
 

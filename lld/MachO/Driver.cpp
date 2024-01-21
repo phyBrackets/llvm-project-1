@@ -90,6 +90,10 @@ static std::optional<StringRef> findLibrary(StringRef name) {
     return entry->second;
 
   auto doFind = [&] {
+    // Special case for Csu support files required for Mac OS X 10.7 and older
+    // (crt1.o)
+    if (name.ends_with(".o"))
+      return findPathCombination(name, config->librarySearchPaths, {""});
     if (config->searchDylibsFirst) {
       if (std::optional<StringRef> path =
               findPathCombination("lib" + name, config->librarySearchPaths,
@@ -514,15 +518,13 @@ void macho::resolveLCLinkerOptions() {
     for (unsigned i = 0; i < LCLinkerOptions.size(); ++i) {
       StringRef arg = LCLinkerOptions[i];
       if (arg.consume_front("-l")) {
-        if (config->ignoreAutoLinkOptions.contains(arg))
-          continue;
+        assert(!config->ignoreAutoLinkOptions.contains(arg));
         addLibrary(arg, /*isNeeded=*/false, /*isWeak=*/false,
                    /*isReexport=*/false, /*isHidden=*/false,
                    /*isExplicit=*/false, LoadType::LCLinkerOption);
       } else if (arg == "-framework") {
         StringRef name = LCLinkerOptions[++i];
-        if (config->ignoreAutoLinkOptions.contains(name))
-          continue;
+        assert(!config->ignoreAutoLinkOptions.contains(name));
         addFramework(name, /*isNeeded=*/false, /*isWeak=*/false,
                      /*isReexport=*/false, /*isExplicit=*/false,
                      LoadType::LCLinkerOption);
@@ -954,8 +956,7 @@ static std::vector<SectionAlign> parseSectAlign(const opt::InputArgList &args) {
     StringRef segName = arg->getValue(0);
     StringRef sectName = arg->getValue(1);
     StringRef alignStr = arg->getValue(2);
-    if (alignStr.starts_with("0x") || alignStr.starts_with("0X"))
-      alignStr = alignStr.drop_front(2);
+    alignStr.consume_front_insensitive("0x");
     uint32_t align;
     if (alignStr.getAsInteger(16, align)) {
       error("-sectalign: failed to parse '" + StringRef(arg->getValue(2)) +

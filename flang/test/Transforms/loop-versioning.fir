@@ -263,7 +263,7 @@ func.func @sum1dfixed(%arg0: !fir.ref<!fir.array<?xf64>> {fir.bindc_name = "a"},
 // CHECK-SAME:            %[[N1:.*]]: !fir.ref<i32> {{.*}},
 // CHECK-SAME:            %[[M1:.*]]: !fir.ref<i32> {{.*}}) {
 // CHECK: fir.do_loop
-// CHECL:   %[[FOUR:.*]] = arith.constant 4 : index
+// CHECK:   %[[FOUR:.*]] = arith.constant 4 : index
 // CHECK:   %[[COMP:.*]] = arith.cmpi {{.*}}, %[[FOUR]]
 // CHECK:   fir.if %[[COMP]] -> {{.*}} {
 // CHECK:     %[[CONV:.*]] = fir.convert %[[B]] :
@@ -1433,5 +1433,128 @@ func.func @_QPtest_loop_nest(%arg0: !fir.box<!fir.array<?xf32>> {fir.bindc_name 
 // CHECK-LABEL:   func.func @_QPtest_loop_nest(
 // CHECK: fir.if
 // CHECK-NOT: fir.if
+
+
+//-----
+
+// Check that a non-dominating operand isn't causing a problem.
+// Just check it compiles, and doesn't version this loop.
+func.func @sum1drebox(%arg0: !fir.box<!fir.array<?xf64>> {fir.bindc_name = "a"}, %arg1: !fir.ref<i32> {fir.bindc_name = "n"}) {
+  %decl = fir.declare %arg0 {uniq_name = "a"} : (!fir.box<!fir.array<?xf64>>) -> !fir.box<!fir.array<?xf64>>
+  %0 = fir.alloca i32 {bindc_name = "i", uniq_name = "_QMmoduleFsum1dEi"}
+  %1 = fir.alloca f64 {bindc_name = "sum", uniq_name = "_QMmoduleFsum1dEsum"}
+  %cst = arith.constant 0.000000e+00 : f64
+  fir.store %cst to %1 : !fir.ref<f64>
+  %c1_i32 = arith.constant 1 : i32
+  %2 = fir.convert %c1_i32 : (i32) -> index
+  %3 = fir.load %arg1 : !fir.ref<i32>
+  %4 = fir.convert %3 : (i32) -> index
+  %c1 = arith.constant 1 : index
+  %5 = fir.convert %2 : (index) -> i32
+  %6:2 = fir.do_loop %arg2 = %2 to %4 step %c1 iter_args(%arg3 = %5) -> (index, i32) {
+    // rebox is not dominating the loop.
+    %rebox = fir.rebox %decl : (!fir.box<!fir.array<?xf64>>) -> !fir.box<!fir.array<?xf64>>
+    fir.store %arg3 to %0 : !fir.ref<i32>
+    %7 = fir.load %1 : !fir.ref<f64>
+    %8 = fir.load %0 : !fir.ref<i32>
+    %9 = fir.convert %8 : (i32) -> i64
+    %c1_i64 = arith.constant 1 : i64
+    %10 = arith.subi %9, %c1_i64 : i64
+    %11 = fir.coordinate_of %rebox, %10 : (!fir.box<!fir.array<?xf64>>, i64) -> !fir.ref<f64>
+    %12 = fir.load %11 : !fir.ref<f64>
+    %13 = arith.addf %7, %12 fastmath<contract> : f64
+    fir.store %13 to %1 : !fir.ref<f64>
+    %14 = arith.addi %arg2, %c1 : index
+    %15 = fir.convert %c1 : (index) -> i32
+    %16 = fir.load %0 : !fir.ref<i32>
+    %17 = arith.addi %16, %15 : i32
+    fir.result %14, %17 : index, i32
+  }
+  fir.store %6#1 to %0 : !fir.ref<i32>
+  return
+}
+// CHECK-LABEL: func @sum1drebox
+// No versioning -> no if-operation.
+// CHECK-NOT: fir.if
+
+
+// Check for a use in a different block (%12 = do_loop is used inside the if %14 block)
+func.func @minloc(%arg0: !fir.box<!fir.array<?xi32>> {fir.bindc_name = "x"}, %arg1: !fir.box<!fir.array<?xi32>> {fir.bindc_name = "mask"}) -> f32 {
+  %c2147483647_i32 = arith.constant 2147483647 : i32
+  %c1_i32 = arith.constant 1 : i32
+  %c0 = arith.constant 0 : index
+  %c0_i32 = arith.constant 0 : i32
+  %c5_i32 = arith.constant 5 : i32
+  %c5 = arith.constant 5 : index
+  %c1 = arith.constant 1 : index
+  %0 = fir.alloca i32
+  %1 = fir.alloca !fir.array<1xi32>
+  %2 = fir.declare %arg1 {uniq_name = "_QFtestEmask"} : (!fir.box<!fir.array<?xi32>>) -> !fir.box<!fir.array<?xi32>>
+  %3 = fir.rebox %2 : (!fir.box<!fir.array<?xi32>>) -> !fir.box<!fir.array<?xi32>>
+  %4 = fir.alloca f32 {bindc_name = "test", uniq_name = "_QFtestEtest"}
+  %5 = fir.declare %4 {uniq_name = "_QFtestEtest"} : (!fir.ref<f32>) -> !fir.ref<f32>
+  %6 = fir.declare %arg0 {uniq_name = "_QFtestEx"} : (!fir.box<!fir.array<?xi32>>) -> !fir.box<!fir.array<?xi32>>
+  %7 = fir.rebox %6 : (!fir.box<!fir.array<?xi32>>) -> !fir.box<!fir.array<?xi32>>
+  %8 = fir.shape %c1 : (index) -> !fir.shape<1>
+  %9 = fir.array_coor %1(%8) %c1 : (!fir.ref<!fir.array<1xi32>>, !fir.shape<1>, index) -> !fir.ref<i32>
+  fir.store %c0_i32 to %9 : !fir.ref<i32>
+  fir.store %c0_i32 to %0 : !fir.ref<i32>
+  %10:3 = fir.box_dims %7, %c0 : (!fir.box<!fir.array<?xi32>>, index) -> (index, index, index)
+  %11 = arith.subi %10#1, %c1 : index
+  %12 = fir.do_loop %arg2 = %c0 to %11 step %c1 iter_args(%arg3 = %c2147483647_i32) -> (i32) {
+    %18 = arith.addi %arg2, %c1 : index
+    %19 = fir.array_coor %3 %18 : (!fir.box<!fir.array<?xi32>>, index) -> !fir.ref<i32>
+    %20 = fir.load %19 : !fir.ref<i32>
+    %21 = arith.cmpi sge, %20, %c5_i32 : i32
+    %22 = fir.if %21 -> (i32) {
+      fir.store %c1_i32 to %0 : !fir.ref<i32>
+      %23 = arith.subi %10#0, %c1 : index
+      %24 = arith.addi %18, %23 : index
+      %25 = fir.array_coor %7 %24 : (!fir.box<!fir.array<?xi32>>, index) -> !fir.ref<i32>
+      %26 = fir.load %25 : !fir.ref<i32>
+      %27 = arith.cmpi slt, %26, %arg3 : i32
+      %28 = fir.if %27 -> (i32) {
+        %29 = fir.convert %18 : (index) -> i32
+        fir.store %29 to %9 : !fir.ref<i32>
+        fir.result %26 : i32
+      } else {
+        fir.result %arg3 : i32
+      }
+      fir.result %28 : i32
+    } else {
+      fir.result %arg3 : i32
+    }
+    fir.result %22 : i32
+  }
+  %13 = fir.load %0 : !fir.ref<i32>
+  %14 = arith.cmpi eq, %13, %c1_i32 : i32
+  fir.if %14 {
+    %18 = arith.cmpi eq, %12, %c2147483647_i32 : i32
+    fir.if %18 {
+      %19 = fir.array_coor %1(%8) %c0 : (!fir.ref<!fir.array<1xi32>>, !fir.shape<1>, index) -> !fir.ref<i32>
+      fir.store %c1_i32 to %19 : !fir.ref<i32>
+    }
+  }
+  %15 = fir.slice %c5, %c5, %c1 : (index, index, index) -> !fir.slice<1>
+  %16 = fir.rebox %7 [%15] : (!fir.box<!fir.array<?xi32>>, !fir.slice<1>) -> !fir.box<!fir.array<1xi32>>
+  fir.do_loop %arg2 = %c1 to %c1 step %c1 unordered {
+    %18 = fir.array_coor %1(%8) %arg2 : (!fir.ref<!fir.array<1xi32>>, !fir.shape<1>, index) -> !fir.ref<i32>
+    %19 = fir.load %18 : !fir.ref<i32>
+    %20 = fir.array_coor %16 %arg2 : (!fir.box<!fir.array<1xi32>>, index) -> !fir.ref<i32>
+    fir.store %19 to %20 : !fir.ref<i32>
+  }
+  %17 = fir.load %5 : !fir.ref<f32>
+  return %17 : f32
+}
+// CHECK-LABEL: func @minloc
+// CHECK: %[[V17:.*]] = fir.if %{{.*}} -> (i32) {
+// CHECK:   %[[V27:.*]] = fir.do_loop
+// CHECK:   fir.result %[[V27]] : i32
+// CHECK: } else {
+// CHECK:   %[[V23:.*]] = fir.do_loop
+// CHECK:   fir.result %[[V23]] : i32
+// CHECK: fir.if %{{.*}} {
+// CHECK:   {{.*}} = arith.cmpi eq, %[[V17]], %c2147483647_i32
+
 
 } // End module

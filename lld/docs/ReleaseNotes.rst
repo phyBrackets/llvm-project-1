@@ -38,6 +38,9 @@ Breaking changes
 COFF Improvements
 -----------------
 
+* Added support for ``--time-trace`` and associated ``--time-trace-granularity``.
+  This generates a .json profile trace of the linker execution.
+
 MinGW Improvements
 ------------------
 
@@ -46,6 +49,10 @@ MachO Improvements
 
 WebAssembly Improvements
 ------------------------
+
+* Indexes are no longer required on archive files.  Instead symbol information
+  is read from object files within the archive.  This matches the behaviour of
+  the ELF linker.
 
 Fixes
 #####
